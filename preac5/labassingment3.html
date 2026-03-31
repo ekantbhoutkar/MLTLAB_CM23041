@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Performance Monitor — MobileNet</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+
+<style>
+body {
+  background: #0b1220;
+  color: #e5e7eb;
+  font-family: monospace;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+}
+
+h2 { color: #a78bfa; }
+
+#wrapper {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  max-width: 900px;
+}
+
+#videoBox {
+  position: relative;
+  border: 1px solid #1f2937;
+}
+
+video, canvas {
+  width: 100%;
+  display: block;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#fpsBox {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0,0,0,0.6);
+  padding: 4px 8px;
+  font-size: 0.75rem;
+}
+
+.panel {
+  background: #111827;
+  padding: 12px;
+  border-radius: 6px;
+  min-width: 260px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+button {
+  padding: 8px 20px;
+  background: #7c3aed;
+  border: none;
+  color: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  background: #374151;
+}
+
+canvas.small {
+  height: 60px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>MobileNet Performance Dashboard</h2>
+<p id="msg">Loading model...</p>
+
+<div id="wrapper">
+
+  <div id="videoBox">
+    <video id="cam" autoplay muted playsinline></video>
+    <canvas id="layer"></canvas>
+    <div id="fpsBox"><span id="fpsVal">--</span> FPS</div>
+  </div>
+
+  <div class="panel">
+    <div class="stat"><span>FPS</span><span id="fpsStat">-</span></div>
+    <div class="stat"><span>Latency</span><span id="latStat">-</span></div>
+    <div class="stat"><span>Frames</span><span id="frameStat">0</span></div>
+    <div class="stat"><span>Backend</span><span id="backendStat">-</span></div>
+
+    <canvas id="fpsChart" class="small"></canvas>
+    <canvas id="latChart" class="small"></canvas>
+  </div>
+
+</div>
+
+<button id="btn" disabled>Start</button>
+
+<script>
+let net;
+let active = false;
+
+const cam = document.getElementById("cam");
+const layer = document.getElementById("layer");
+const ctx = layer.getContext("2d");
+
+const msg = document.getElementById("msg");
+const btn = document.getElementById("btn");
+
+const fpsVal = document.getElementById("fpsVal");
+const fpsStat = document.getElementById("fpsStat");
+const latStat = document.getElementById("latStat");
+const frameStat = document.getElementById("frameStat");
+const backendStat = document.getElementById("backendStat");
+
+const fpsChart = document.getElementById("fpsChart");
+const latChart = document.getElementById("latChart");
+const fCtx = fpsChart.getContext("2d");
+const lCtx = latChart.getContext("2d");
+
+let lastTime = 0;
+let frameCount = 0;
+
+let fpsArr = [];
+let latArr = [];
+
+const LIMIT = 50;
+
+// Load model
+async function init() {
+  await tf.setBackend("webgl");
+  await tf.ready();
+
+  net = await mobilenet.load();
+  backendStat.textContent = tf.getBackend();
+
+  msg.textContent = "Model ready";
+  btn.disabled = false;
+}
+
+// Start camera
+async function startCam() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  cam.srcObject = stream;
+  await cam.play();
+
+  layer.width = cam.videoWidth;
+  layer.height = cam.videoHeight;
+
+  active = true;
+  btn.textContent = "Stop";
+  btn.onclick = stopCam;
+
+  lastTime = performance.now();
+  detect();
+}
+
+// Stop
+function stopCam() {
+  active = false;
+  cam.srcObject.getTracks().forEach(t => t.stop());
+  cam.srcObject = null;
+  btn.textContent = "Start";
+  btn.onclick = startCam;
+}
+
+// Loop
+async function detect() {
+  if (!active) return;
+
+  const start = performance.now();
+
+  const preds = await net.classify(cam);
+
+  const end = performance.now();
+  const latency = end - start;
+
+  const now = performance.now();
+  const fps = 1000 / (now - lastTime);
+  lastTime = now;
+
+  frameCount++;
+
+  fpsArr.push(fps);
+  latArr.push(latency);
+
+  if (fpsArr.length > LIMIT) fpsArr.shift();
+  if (latArr.length > LIMIT) latArr.shift();
+
+  drawOverlay(preds);
+
+  fpsVal.textContent = fps.toFixed(0);
+  fpsStat.textContent = fps.toFixed(1);
+  latStat.textContent = latency.toFixed(1) + " ms";
+  frameStat.textContent = frameCount;
+
+  drawGraph(fCtx, fpsArr);
+  drawGraph(lCtx, latArr);
+
+  requestAnimationFrame(detect);
+}
+
+// Draw overlay
+function drawOverlay(data) {
+  ctx.clearRect(0, 0, layer.width, layer.height);
+
+  ctx.font = "14px monospace";
+
+  data.slice(0, 3).forEach((p, i) => {
+    const text = p.className.split(",")[0];
+    ctx.fillStyle = "#000";
+    ctx.fillRect(10, 10 + i * 30, 200, 24);
+
+    ctx.fillStyle = "#a78bfa";
+    ctx.fillText(text, 14, 26 + i * 30);
+  });
+}
+
+// Graph
+function drawGraph(ctx, arr) {
+  const w = ctx.canvas.width = ctx.canvas.offsetWidth;
+  const h = ctx.canvas.height = ctx.canvas.offsetHeight;
+
+  ctx.clearRect(0, 0, w, h);
+
+  if (arr.length < 2) return;
+
+  const max = Math.max(...arr);
+
+  ctx.beginPath();
+  arr.forEach((v, i) => {
+    const x = (i / arr.length) * w;
+    const y = h - (v / max) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+
+  ctx.strokeStyle = "#a78bfa";
+  ctx.stroke();
+}
+
+// Button
+btn.onclick = startCam;
+
+// Init
+init();
+</script>
+
+</body>
+</html>
