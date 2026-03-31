@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Object Detection (No Camera)</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+<style>
+body {
+    font-family: Arial;
+    text-align: center;
+    background: #111;
+    color: white;
+}
+
+img {
+    margin-top: 20px;
+    max-width: 400px;
+    border: 2px solid #444;
+}
+
+button {
+    padding: 10px 20px;
+    margin-top: 20px;
+}
+
+</style>
+</head>
+<body>
+
+<h2>Object Detection (Upload Image)</h2>
+
+<input type="file" id="imageUpload" accept="image/*">
+<br>
+<button onclick="detect()">Detect Objects</button>
+
+<br>
+<img id="preview">
+
+<h3 id="output"></h3>
+
+<script>
+
+let model;
+
+// Load model
+async function loadModel() {
+    document.getElementById("output").innerText = "Loading model...";
+    model = await cocoSsd.load();
+    document.getElementById("output").innerText = "Model loaded ✅";
+}
+
+loadModel();
+
+// Show image preview
+document.getElementById("imageUpload").addEventListener("change", function(e) {
+    const file = e.target.files[0];
+    const img = document.getElementById("preview");
+    img.src = URL.createObjectURL(file);
+});
+
+// Detect objects
+async function detect() {
+
+    const img = document.getElementById("preview");
+
+    if(!img.src){
+        alert("Upload image first!");
+        return;
+    }
+
+    const predictions = await model.detect(img);
+
+    let result = "";
+
+    predictions.forEach(p => {
+        result += `${p.class} (${(p.score*100).toFixed(2)}%)<br>`;
+    });
+
+    document.getElementById("output").innerHTML = result;
+}
+
+</script>
+
+</body>
+</html>
