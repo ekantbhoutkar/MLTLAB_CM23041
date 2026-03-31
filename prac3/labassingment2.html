@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>IMDB Sentiment RNN</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+</head>
+<body>
+
+<h2>IMDB Sentiment Analysis (RNN)</h2>
+
+<button onclick="loadAndTrain()">Load Dataset & Train</button>
+
+<br><br>
+
+<input type="text" id="inputText" size="60" placeholder="Enter sentence">
+<button onclick="predict()">Predict</button>
+
+<h3 id="result"></h3>
+
+<script>
+
+let texts = [];
+let labels = [];
+let wordIndex = {};
+let vocabSize;
+let model;
+
+const MAX_LEN = 100;
+const MAX_SAMPLES = 300;
+
+async function loadAndTrain() {
+
+    // RESET (important)
+    texts = [];
+    labels = [];
+    wordIndex = {};
+    model = null;
+
+    console.log("Loading CSV...");
+
+    Papa.parse("IMDB Dataset.csv", {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+
+        complete: async function(results) {
+
+            results.data.slice(0, MAX_SAMPLES).forEach(row => {
+
+                if(row.review && row.sentiment){
+                    texts.push(row.review.toLowerCase());
+                    labels.push(row.sentiment === "positive" ? 1 : 0);
+                }
+
+            });
+
+            console.log("Samples loaded:", texts.length);
+
+            await trainModel();
+        },
+
+        error: function(err){
+            console.error("CSV Error:", err);
+        }
+    });
+}
+
+function buildVocab() {
+    let index = 1;
+
+    texts.forEach(text => {
+        text.split(/\W+/).forEach(word => {
+            if(word && !wordIndex[word]) {
+                wordIndex[word] = index++;
+            }
+        });
+    });
+
+    vocabSize = index;
+}
+
+function encode(texts) {
+    return texts.map(text => {
+
+        let seq = text.split(/\W+/).map(w => wordIndex[w] || 0);
+
+        if(seq.length > MAX_LEN) seq = seq.slice(0, MAX_LEN);
+
+        while(seq.length < MAX_LEN) seq.push(0);
+
+        return seq;
+    });
+}
+
+async function trainModel() {
+
+    console.log("Building vocab...");
+    buildVocab();
+
+    console.log("Encoding...");
+    const xs = tf.tensor2d(encode(texts));
+    const ys = tf.tensor2d(labels, [labels.length, 1]);
+
+    console.log("Building model...");
+
+    model = tf.sequential();
+
+    model.add(tf.layers.embedding({
+        inputDim: vocabSize,
+        outputDim: 16,
+        inputLength: MAX_LEN
+    }));
+
+    model.add(tf.layers.simpleRNN({units:32}));
+
+    model.add(tf.layers.dense({
+        units:1,
+        activation:'sigmoid'
+    }));
+
+    model.compile({
+        optimizer:'adam',
+        loss:'binaryCrossentropy',
+        metrics:['accuracy']
+    });
+
+    console.log("Training...");
+
+    const history = await model.fit(xs, ys, {
+        epochs:5,
+        batchSize:16,
+        validationSplit:0.2
+    });
+
+    const acc = history.history.accuracy?.slice(-1)[0] || 0;
+    const valAcc = history.history.val_accuracy?.slice(-1)[0] || 0;
+
+    console.log("Train Accuracy:", (acc*100).toFixed(2)+"%");
+    console.log("Val Accuracy:", (valAcc*100).toFixed(2)+"%");
+
+    alert("Model Training Completed!");
+}
+
+function preprocess(text) {
+
+    text = text.toLowerCase();
+
+    let seq = text.split(/\W+/).map(w => wordIndex[w] || 0);
+
+    if(seq.length > MAX_LEN) seq = seq.slice(0, MAX_LEN);
+
+    while(seq.length < MAX_LEN) seq.push(0);
+
+    return tf.tensor2d([seq]);
+}
+
+function predict() {
+
+    if(!model){
+        alert("Train model first!");
+        return;
+    }
+
+    const text = document.getElementById("inputText").value;
+
+    const tensor = preprocess(text);
+
+    const pred = model.predict(tensor).dataSync()[0];
+
+    const sentiment = pred > 0.5 ? "Positive 😊" : "Negative 😡";
+    const confidence = (pred * 100).toFixed(2);
+
+    document.getElementById("result").innerHTML =
+        `Sentiment: <b>${sentiment}</b><br>Confidence: ${confidence}%`;
+}
+
+</script>
+
+</body>
+</html>
