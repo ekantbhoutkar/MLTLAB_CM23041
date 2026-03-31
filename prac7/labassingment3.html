@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Assignment 3 - Export & Visualize</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+</head>
+<body style="font-family:Verdana;background:linear-gradient(135deg,#c3f0ca,#f7d794);padding:30px;text-align:center;">
+
+<h1>📦 Assignment 3: Export + Re-import Model</h1>
+
+<button onclick="processModel()" 
+style="padding:18px 35px;font-size:18px;background:#6c5ce7;color:white;border:none;border-radius:8px;cursor:pointer;">
+    ▶ Export & Visualize
+</button>
+
+<canvas id="canvas" width="800" height="400" 
+style="border:2px solid #6c5ce7;border-radius:12px;background:white;margin-top:20px;"></canvas>
+
+<div id="info" style="margin-top:25px;font-family:monospace;"></div>
+
+<script>
+async function processModel() {
+
+    const info = document.getElementById("info");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    try {
+        info.innerHTML = "⏳ Loading model from LocalStorage...";
+
+        // Step 1: Load model
+        const model = await tf.loadLayersModel("localstorage://linear-model-demo");
+
+        // Step 2: Export to files (download)
+        await model.save("downloads://my-exported-model");
+
+        info.innerHTML += "<br>📥 Model exported (check downloads folder)";
+
+        // Step 3: Re-import (manual upload required)
+        info.innerHTML += "<br>👉 Please upload model.json + weights.bin below";
+
+        // Create file input dynamically
+        const input = document.createElement("input");
+        input.type = "file";
+        input.multiple = true;
+        document.body.appendChild(input);
+
+        input.onchange = async (e) => {
+            const files = e.target.files;
+
+            // Step 4: Load uploaded model
+            const uploadedModel = await tf.loadLayersModel(
+                tf.io.browserFiles([files[0], files[1]])
+            );
+
+            info.innerHTML += "<br>✅ Model re-imported successfully";
+
+            // Draw graph
+            ctx.clearRect(0, 0, 800, 400);
+
+            // Prediction line
+            ctx.strokeStyle = "#e17055";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+
+            const xs = tf.linspace(-2, 2, 40).expandDims(1);
+            const preds = await uploadedModel.predict(xs).data();
+
+            for (let i = 0; i < 40; i++) {
+                let x = xs.dataSync()[i];
+                let y = preds[i];
+
+                let px = (x + 2) * 150;
+                let py = 300 - y * 50;
+
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+
+            ctx.stroke();
+
+            // Get equation
+            const w = (await uploadedModel.layers[0].getWeights()[0].data())[0];
+            const b = (await uploadedModel.layers[0].getWeights()[1].data())[0];
+
+            info.innerHTML += `
+                <br><br>📈 Learned Equation: y ≈ ${w.toFixed(2)}x + ${b.toFixed(2)}
+                <br>🎉 Assignment 3 Completed Successfully!
+            `;
+
+            uploadedModel.dispose();
+        };
+
+        model.dispose();
+
+    } catch (err) {
+        info.innerHTML = "❌ Error: " + err.message;
+        console.error(err);
+    }
+}
+</script>
+
+</body>
+</html>
