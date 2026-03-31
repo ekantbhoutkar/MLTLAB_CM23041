@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Stable Pose Tracking (PoseNet)</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+
+<style>
+body {
+  text-align: center;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: monospace;
+}
+
+#frame {
+  position: relative;
+  width: 700px;
+  margin: auto;
+  border: 1px solid #1e293b;
+}
+
+video, canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+h2 {
+  color: #22c55e;
+}
+</style>
+</head>
+
+<body>
+
+<h2>PoseNet Tracking (Smoothed Output)</h2>
+
+<div id="frame">
+  <video id="cam" width="700" height="500" autoplay></video>
+  <canvas id="layer" width="700" height="500"></canvas>
+</div>
+
+<script>
+const cam = document.getElementById("cam");
+const layer = document.getElementById("layer");
+const ctx = layer.getContext("2d");
+
+let lastPoints = [];
+
+// Start camera
+async function initCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  cam.srcObject = stream;
+  return new Promise(res => cam.onloadedmetadata = res);
+}
+
+// Smooth movement
+function applySmoothing(points) {
+  if (!lastPoints.length) {
+    lastPoints = points;
+    return points;
+  }
+
+  const alpha = 0.6;   // current weight
+  const beta  = 0.4;   // previous weight
+
+  return points.map((pt, i) => {
+    const prev = lastPoints[i];
+
+    return {
+      ...pt,
+      position: {
+        x: alpha * pt.position.x + beta * prev.position.x,
+        y: alpha * pt.position.y + beta * prev.position.y
+      }
+    };
+  });
+}
+
+// Draw joints
+function renderPoints(points) {
+  points.forEach(p => {
+    if (p.score > 0.5) {
+      ctx.beginPath();
+      ctx.arc(p.position.x, p.position.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ef4444";
+      ctx.fill();
+    }
+  });
+}
+
+// Draw connections
+function renderLines(points) {
+  const links = posenet.getAdjacentKeyPoints(points, 0.5);
+
+  links.forEach(([p1, p2]) => {
+    ctx.beginPath();
+    ctx.moveTo(p1.position.x, p1.position.y);
+    ctx.lineTo(p2.position.x, p2.position.y);
+    ctx.strokeStyle = "#22c55e";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+// Main execution
+async function run() {
+  const model = await posenet.load({
+    architecture: "ResNet50",
+    outputStride: 32
+  });
+
+  await initCamera();
+  cam.play();
+
+  async function loop() {
+    const pose = await model.estimateSinglePose(cam, {
+      flipHorizontal: true
+    });
+
+    ctx.clearRect(0, 0, layer.width, layer.height);
+
+    const smoothed = applySmoothing(pose.keypoints);
+
+    renderPoints(smoothed);
+    renderLines(smoothed);
+
+    lastPoints = smoothed;
+
+    requestAnimationFrame(loop);
+  }
+
+  loop();
+}
+
+run();
+</script>
+
+</body>
+</html>
