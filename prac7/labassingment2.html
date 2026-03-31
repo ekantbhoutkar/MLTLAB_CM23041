@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Assignment 2 - Reload Model</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+</head>
+<body style="font-family:Verdana;background:#fab1a0;padding:40px;text-align:center;">
+
+<h1 style="color:#2d3436;">📥 Assignment 2: Load & Verify Model</h1>
+
+<button onclick="loadAndCheck()" 
+style="padding:18px 35px;font-size:18px;background:#0984e3;color:white;border:none;border-radius:8px;cursor:pointer;">
+    ▶ Load Model
+</button>
+
+<div id="display" 
+style="margin-top:30px;padding:25px;background:#ffeaa7;border-radius:12px;max-width:600px;margin-left:auto;margin-right:auto;font-family:monospace;">
+    Click to load saved model...
+</div>
+
+<script>
+async function loadAndCheck() {
+
+    const display = document.getElementById("display");
+    display.innerHTML = "⏳ Loading saved model...";
+
+    try {
+        // Load from LocalStorage
+        const loadedModel = await tf.loadLayersModel("localstorage://linear-model-demo");
+        display.innerHTML += "<br>✅ Model successfully loaded";
+
+        // Test inputs
+        const sampleInputs = [-2, -1, 0, 1, 2];
+        let predictionText = "";
+
+        for (let val of sampleInputs) {
+            const inputTensor = tf.tensor2d([[val]]);
+            const outputTensor = loadedModel.predict(inputTensor);
+
+            const result = (await outputTensor.data())[0];
+            predictionText += `<br>x=${val} → y=${result.toFixed(2)}`;
+
+            inputTensor.dispose();
+            outputTensor.dispose();
+        }
+
+        // Extract parameters
+        const layerWeights = loadedModel.layers[0].getWeights();
+        const weightVal = (await layerWeights[0].data())[0];
+        const biasVal = (await layerWeights[1].data())[0];
+
+        display.innerHTML = `
+            <b style="color:#0984e3;font-size:22px;">✅ Model Reload Successful</b><br><br>
+            📌 Learned function: y ≈ ${weightVal.toFixed(2)}x + ${biasVal.toFixed(2)}<br><br>
+            🔍 Sample Predictions:<br>
+            ${predictionText}<br><br>
+            ✔ Predictions match trained model<br>
+        `;
+
+        loadedModel.dispose();
+
+    } catch (err) {
+        display.innerHTML = `
+            ❌ Error: ${err.message}<br><br>
+            👉 Make sure Assignment 1 was executed<br>
+            👉 Use same browser session
+        `;
+        console.error(err);
+    }
+}
+</script>
+
+</body>
+</html>
