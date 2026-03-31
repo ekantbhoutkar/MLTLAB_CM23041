@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Live Object Labels — MobileNet Overlay</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+
+<style>
+  body {
+    background: #0c1117;
+    color: #d1d5db;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  h2 {
+    color: #60a5fa;
+    font-size: 1rem;
+    letter-spacing: 0.15em;
+  }
+
+  #container {
+    position: relative;
+    width: 640px;
+    max-width: 100%;
+    border: 1px solid #1f2937;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+
+  video {
+    width: 100%;
+    display: block;
+  }
+
+  canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
+  button {
+    padding: 8px 22px;
+    background: #2563eb;
+    border: none;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  button:disabled {
+    background: #374151;
+  }
+
+  #msg {
+    font-size: 0.85rem;
+    color: #9ca3af;
+  }
+</style>
+</head>
+
+<body>
+
+<h2>MobileNet Live Detection</h2>
+<p id="msg">Initializing model...</p>
+
+<div id="container">
+  <video id="camFeed" autoplay muted playsinline></video>
+  <canvas id="drawLayer"></canvas>
+</div>
+
+<button id="btn" disabled>Start</button>
+
+<script>
+let classifier;
+let active = false;
+
+const camFeed = document.getElementById("camFeed");
+const drawLayer = document.getElementById("drawLayer");
+const ctx = drawLayer.getContext("2d");
+const msg = document.getElementById("msg");
+const btn = document.getElementById("btn");
+
+const palette = ["#60a5fa", "#fbbf24", "#f87171"];
+
+// Load model
+async function setupModel() {
+  classifier = await mobilenet.load();
+  msg.textContent = "Model loaded. Click start.";
+  btn.disabled = false;
+}
+
+// Resize canvas
+function adjustCanvas() {
+  drawLayer.width = camFeed.videoWidth || 640;
+  drawLayer.height = camFeed.videoHeight || 480;
+}
+
+// Start camera
+async function startStream() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    camFeed.srcObject = stream;
+    await camFeed.play();
+
+    adjustCanvas();
+
+    active = true;
+    btn.textContent = "Stop";
+    btn.onclick = stopStream;
+
+    msg.textContent = "Detecting objects...";
+    runDetection();
+  } catch {
+    msg.textContent = "Camera error!";
+  }
+}
+
+// Stop camera
+function stopStream() {
+  active = false;
+
+  if (camFeed.srcObject) {
+    camFeed.srcObject.getTracks().forEach(t => t.stop());
+  }
+
+  camFeed.srcObject = null;
+  ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+
+  btn.textContent = "Start";
+  btn.onclick = startStream;
+  msg.textContent = "Stopped.";
+}
+
+// Detection loop
+async function runDetection() {
+  if (!active) return;
+
+  const results = await classifier.classify(camFeed, 3);
+  renderOverlay(results);
+
+  requestAnimationFrame(runDetection);
+}
+
+// Draw labels
+function renderOverlay(data) {
+  ctx.clearRect(0, 0, drawLayer.width, drawLayer.height);
+
+  ctx.font = "bold 14px monospace";
+
+  data.forEach((item, index) => {
+    const label = item.className.split(",")[0];
+    const prob = (item.probability * 100).toFixed(1) + "%";
+
+    const text = `${label} ${prob}`;
+    const textWidth = ctx.measureText(text).width;
+
+    const x = 15;
+    const y = 20 + index * 45;
+
+    // Background box
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(x, y, textWidth + 20, 28);
+
+    // Text
+    ctx.fillStyle = palette[index];
+    ctx.fillText(text, x + 10, y + 18);
+
+    // Progress bar
+    ctx.fillStyle = "#1f2937";
+    ctx.fillRect(x, y + 30, textWidth + 20, 4);
+
+    ctx.fillStyle = palette[index];
+    ctx.fillRect(x, y + 30, (textWidth + 20) * item.probability, 4);
+  });
+
+  // Small footer text
+  ctx.fillStyle = "rgba(255,255,255,0.3)";
+  ctx.font = "10px monospace";
+  ctx.fillText("MobileNet", drawLayer.width - 80, drawLayer.height - 8);
+}
+
+// Button action
+btn.onclick = startStream;
+
+// Initialize
+setupModel();
+</script>
+
+</body>
+</html>
