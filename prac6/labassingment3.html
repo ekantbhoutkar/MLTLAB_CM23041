@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PoseNet Performance Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/posenet"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+  text-align: center;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: monospace;
+}
+
+#stage {
+  position: relative;
+  width: 700px;
+  margin: auto;
+  border: 1px solid #1e293b;
+}
+
+video, canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.controls button {
+  margin: 6px;
+  padding: 8px 16px;
+  background: #22c55e;
+  border: none;
+  color: #000;
+  cursor: pointer;
+}
+
+canvas.graph {
+  position: static;
+  margin-top: 20px;
+}
+</style>
+
+<link rel="icon" href="data:,">
+</head>
+
+<body>
+
+<h2>PoseNet Analysis Panel</h2>
+
+<div class="controls">
+  <button onclick="setMode('single')">Single</button>
+  <button onclick="setMode('multi')">Multiple</button>
+  <button onclick="exportCSV()">Export CSV</button>
+</div>
+
+<p>Mode: <span id="modeLabel">Single</span></p>
+<p>Detected: <span id="count">0</span></p>
+<p>FPS: <span id="fpsVal">0</span></p>
+<p>Average FPS: <span id="avgVal">0</span></p>
+<p>Confidence: <span id="confVal">0</span></p>
+
+<div id="stage">
+  <video id="cam" width="700" height="500" autoplay></video>
+  <canvas id="layer" width="700" height="500"></canvas>
+</div>
+
+<canvas id="chart" class="graph" width="600" height="250"></canvas>
+
+<script>
+const cam = document.getElementById("cam");
+const layer = document.getElementById("layer");
+const ctx = layer.getContext("2d");
+
+let currentMode = "single";
+let prevTime = performance.now();
+let fpsList = [];
+let records = [];
+
+// Chart setup
+const graph = new Chart(document.getElementById("chart"), {
+  type: "line",
+  data: {
+    labels: [],
+    datasets: [
+      { label: "FPS", data: [], borderWidth: 2 },
+      { label: "Confidence", data: [], borderWidth: 2 }
+    ]
+  }
+});
+
+// Change mode
+function setMode(m) {
+  currentMode = m;
+}
+
+// Camera
+async function initCam() {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  cam.srcObject = stream;
+  return new Promise(r => cam.onloadedmetadata = r);
+}
+
+// Draw joints
+function renderPoints(points, color) {
+  points.forEach(p => {
+    if (p.score > 0.5) {
+      ctx.beginPath();
+      ctx.arc(p.position.x, p.position.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+  });
+}
+
+// Draw skeleton
+function renderSkeleton(points) {
+  const pairs = posenet.getAdjacentKeyPoints(points, 0.5);
+
+  pairs.forEach(([a, b]) => {
+    ctx.beginPath();
+    ctx.moveTo(a.position.x, a.position.y);
+    ctx.lineTo(b.position.x, b.position.y);
+    ctx.strokeStyle = "#22c55e";
+    ctx.stroke();
+  });
+}
+
+// Draw bounding box
+function renderBox(points) {
+  const xs = points.map(p => p.position.x);
+  const ys = points.map(p => p.position.y);
+
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const w = Math.max(...xs) - minX;
+  const h = Math.max(...ys) - minY;
+
+  ctx.strokeStyle = "#3b82f6";
+  ctx.strokeRect(minX, minY, w, h);
+}
+
+// FPS calc
+function calcFPS() {
+  const now = performance.now();
+  const fps = 1000 / (now - prevTime);
+  prevTime = now;
+
+  fpsList.push(fps);
+  if (fpsList.length > 30) fpsList.shift();
+
+  const avg = fpsList.reduce((a,b)=>a+b,0)/fpsList.length;
+
+  document.getElementById("fpsVal").textContent = fps.toFixed(1);
+  document.getElementById("avgVal").textContent = avg.toFixed(1);
+
+  return fps;
+}
+
+// Confidence
+function calcConfidence(points) {
+  const valid = points.filter(p => p.score > 0.5);
+  return (valid.length / points.length) * 100;
+}
+
+// CSV export
+function exportCSV() {
+  let text = "Mode,FPS,Confidence\n";
+
+  records.forEach(r => {
+    text += `${r.mode},${r.fps},${r.conf}\n`;
+  });
+
+  const blob = new Blob([text], { type: "text/csv" });
+  const link = document.createElement("a");
+
+  link.href = URL.createObjectURL(blob);
+  link.download = "report.csv";
+  link.click();
+}
+
+// MAIN
+async function start() {
+
+  await tf.setBackend("cpu");
+  await tf.ready();
+
+  const model = await posenet.load({
+    architecture: "MobileNetV1",
+    multiplier: 0.75
+  });
+
+  await initCam();
+  cam.play();
+
+  async function loop() {
+
+    ctx.clearRect(0, 0, layer.width, layer.height);
+
+    let poses = [];
+
+    if (currentMode === "single") {
+      poses = [await model.estimateSinglePose(cam, { flipHorizontal: true })];
+      document.getElementById("modeLabel").textContent = "Single";
+    } else {
+      poses = await model.estimateMultiplePoses(cam, {
+        flipHorizontal: true,
+        maxDetections: 3,
+        scoreThreshold: 0.5
+      });
+      document.getElementById("modeLabel").textContent = "Multiple";
+    }
+
+    document.getElementById("count").textContent = poses.length;
+
+    let total = 0;
+
+    poses.forEach((p, i) => {
+      const color = ["#ef4444","#3b82f6","#22c55e","#facc15"][i % 4];
+
+      renderPoints(p.keypoints, color);
+      renderSkeleton(p.keypoints);
+      renderBox(p.keypoints);
+
+      total += calcConfidence(p.keypoints);
+    });
+
+    const avgConf = poses.length ? total / poses.length : 0;
+    document.getElementById("confVal").textContent = avgConf.toFixed(1) + "%";
+
+    const fps = calcFPS();
+
+    // Update graph
+    graph.data.labels.push("");
+    graph.data.datasets[0].data.push(fps);
+    graph.data.datasets[1].data.push(avgConf);
+    graph.update();
+
+    // Save log
+    records.push({
+      mode: currentMode,
+      fps: fps.toFixed(1),
+      conf: avgConf.toFixed(1)
+    });
+
+    requestAnimationFrame(loop);
+  }
+
+  loop();
+}
+
+start();
+</script>
+
+</body>
+</html>
