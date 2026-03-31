@@ -1,0 +1,263 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MobileNet Image Classifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #f7f9fc; display: flex; justify-content: center; padding: 2.5rem; min-height: 100vh; }
+    #main-container { background-color: #ffffff; border-radius: 10px; border: 1px solid #dcdcdc; padding: 2.5rem; width: 100%; max-width: 550px; height: fit-content; }
+    h1 { font-size: 22px; font-weight: bold; margin-bottom: 6px; }
+    .tagline { font-size: 14px; color: #777; margin-bottom: 1.8rem; }
+
+    /* Model status indicator */
+    #status-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; padding: 5px 12px; border-radius: 8px;
+      background-color: #fff8d6; color: #947004; margin-bottom: 1.5rem;
+    }
+    #status-pill.loaded { background-color: #d4f5e3; color: #1a632b; }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background-color: currentColor; animation: fade 1.8s infinite;
+    }
+    @keyframes fade { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* Upload area */
+    #upload-box {
+      border: 2px dashed #b3b3b3; border-radius: 8px;
+      padding: 3rem 1.5rem; text-align: center;
+      cursor: pointer; transition: all 0.25s ease;
+      background-color: #fcfcfc; position: relative;
+    }
+    #upload-box:hover, #upload-box.drag-active { background-color: #f0f6ff; border-color: #2b7de9; }
+    #upload-box input[type=file] {
+      position: absolute; top: 0; left: 0; opacity: 0;
+      cursor: pointer; width: 100%; height: 100%;
+    }
+    #upload-box svg { display: block; margin: 0 auto 15px; opacity: 0.5; }
+    #upload-box p { font-size: 15px; font-weight: bold; color: #444; }
+    #upload-box small { font-size: 13px; color: #888; margin-top: 6px; display: block; }
+
+    /* Image Preview */
+    #image-wrapper { display: none; margin-top: 2rem; }
+    #selected-img {
+      width: 100%; max-height: 320px; object-fit: contain;
+      border-radius: 8px; border: 1px solid #e5e5e5;
+      background-color: #eaeaea; display: block;
+    }
+
+    /* Controls */
+    #run-btn {
+      width: 100%; margin-top: 1.2rem; padding: 12px;
+      font-size: 15px; font-weight: bold; border-radius: 6px;
+      border: none; background-color: #2b7de9; color: white;
+      cursor: pointer; transition: background-color 0.2s;
+    }
+    #run-btn:hover { background-color: #1e62be; }
+    #run-btn:disabled { background-color: #b0b0b0; cursor: not-allowed; }
+    #clear-btn {
+      display: block; margin: 12px auto 0;
+      font-size: 14px; color: #777; background: transparent;
+      border: none; cursor: pointer; text-decoration: underline;
+    }
+
+    /* Output Results */
+    #output-wrapper { display: none; margin-top: 2rem; }
+    .primary-guess { font-size: 18px; font-weight: bold; margin-bottom: 1.2rem; color: #222; }
+    .primary-guess span { color: #2b7de9; }
+    .prediction-item { margin-bottom: 14px; }
+    .prediction-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+    .guess-name { font-size: 15px; font-weight: 600; color: #333; }
+    .guess-score { font-size: 14px; color: #555; }
+    .progress-base { height: 10px; background-color: #e5e5e5; border-radius: 50px; overflow: hidden; }
+    .progress-value { height: 100%; border-radius: 50px; width: 0; transition: width 0.7s ease-out; }
+    .color-top { background-color: #2b7de9; }
+    .color-mid { background-color: #5da5f5; }
+    .color-low { background-color: #9acdfb; }
+
+    /* Info text */
+    #info-msg { margin-top: 1.2rem; font-size: 14px; color: #555; text-align: center; min-height: 22px; }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid #ccc; border-top-color: #2b7de9;
+      border-radius: 50%; animation: rotate 0.9s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div id="main-container">
+  <h1>Image Classifier</h1>
+  <p class="tagline">Powered by MobileNet v2 — runs entirely in your browser</p>
+
+  <div id="status-pill">
+    <span class="pulse-dot"></span>
+    <span id="pill-text">Loading MobileNet...</span>
+  </div>
+
+  <div id="upload-box" onclick="document.getElementById('file-selector').click()">
+    <input type="file" id="file-selector" accept="image/*" onchange="processUpload(event)">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+      stroke="#777" stroke-width="1.5">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+      <polyline points="17 8 12 3 7 8"/>
+      <line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drag & drop an image here</p>
+    <small>or click to select a file (JPG, PNG, WebP)</small>
+  </div>
+
+  <div id="image-wrapper">
+    <img id="selected-img" src="" alt="Uploaded visual"/>
+    <button id="run-btn" onclick="startClassification()" disabled>Classify Image</button>
+    <button id="clear-btn" onclick="resetApp()">Try a different image</button>
+  </div>
+
+  <div id="output-wrapper">
+    <p class="primary-guess" id="primary-guess"></p>
+    <div id="stats-container"></div>
+  </div>
+
+  <p id="info-msg"></p>
+</div>
+
+<script>
+  let netModel = null;
+  let activeImage = null;
+
+  const infoMsg = document.getElementById('info-msg');
+  const pillText = document.getElementById('pill-text');
+  const statusPill = document.getElementById('status-pill');
+  const runBtn = document.getElementById('run-btn');
+
+  // Load the MobileNet v2 model
+  async function initializeModel() {
+    try {
+      infoMsg.innerHTML = '<span class="spinner"></span> Downloading MobileNet v2...';
+      netModel = await mobilenet.load({ version: 2, alpha: 1.0 });
+      pillText.textContent = 'MobileNet v2 is ready';
+      statusPill.classList.add('loaded');
+      infoMsg.textContent = 'Model loaded successfully. Upload an image to start.';
+      if (activeImage) runBtn.disabled = false;
+    } catch (err) {
+      pillText.textContent = 'Model failed to load';
+      infoMsg.textContent = 'Network error. Please check your connection and refresh.';
+    }
+  }
+
+  // Process the uploaded file
+  function processUpload(event) {
+    const uploadedFile = event.target.files[0];
+    if (!uploadedFile) return;
+    
+    const fileReader = new FileReader();
+    fileReader.onload = function (e) {
+      const imgElement = document.getElementById('selected-img');
+      imgElement.src = e.target.result;
+      
+      imgElement.onload = function () {
+        activeImage = imgElement;
+        document.getElementById('image-wrapper').style.display = 'block';
+        document.getElementById('output-wrapper').style.display = 'none';
+        document.getElementById('stats-container').innerHTML = '';
+        document.getElementById('primary-guess').textContent = '';
+        
+        if (netModel) runBtn.disabled = false;
+        infoMsg.textContent = netModel ? 'Image loaded. Ready to classify.' : 'Still loading model...';
+      };
+    };
+    fileReader.readAsDataURL(uploadedFile);
+  }
+
+  // Setup Drag and Drop
+  const uploadBox = document.getElementById('upload-box');
+  uploadBox.addEventListener('dragover', ev => { ev.preventDefault(); uploadBox.classList.add('drag-active'); });
+  uploadBox.addEventListener('dragleave', () => uploadBox.classList.remove('drag-active'));
+  uploadBox.addEventListener('drop', ev => {
+    ev.preventDefault();
+    uploadBox.classList.remove('drag-active');
+    const droppedFile = ev.dataTransfer.files[0];
+    if (droppedFile && droppedFile.type.includes('image/')) {
+      processUpload({ target: { files: [droppedFile] } });
+    }
+  });
+
+  // Execute the prediction
+  async function startClassification() {
+    if (!netModel || !activeImage) return;
+    
+    runBtn.disabled = true;
+    infoMsg.innerHTML = '<span class="spinner"></span> Analyzing pixels...';
+    document.getElementById('output-wrapper').style.display = 'none';
+
+    try {
+      const results = await netModel.classify(activeImage, 5);
+      renderPredictions(results);
+      infoMsg.textContent = '';
+    } catch (err) {
+      infoMsg.textContent = 'Classification failed. Please try another image.';
+      runBtn.disabled = false;
+    }
+  }
+
+  // Draw the progress bars on screen
+  function renderPredictions(results) {
+    const wrapper = document.getElementById('output-wrapper');
+    const statsContainer = document.getElementById('stats-container');
+    const topGuessEl = document.getElementById('primary-guess');
+
+    wrapper.style.display = 'block';
+    statsContainer.innerHTML = '';
+
+    const bestMatch = results[0].className.split(',')[0];
+    topGuessEl.innerHTML = `Top prediction: <span>${bestMatch}</span>`;
+
+    const colorClasses = ['color-top', 'color-mid', 'color-low', 'color-low', 'color-low'];
+
+    results.forEach((item, index) => {
+      const percentage = (item.probability * 100).toFixed(1);
+      const parsedName = item.className.split(',')[0];
+      
+      const statRow = document.createElement('div');
+      statRow.className = 'prediction-item';
+      statRow.innerHTML = `
+        <div class="prediction-header">
+          <span class="guess-name">${parsedName}</span>
+          <span class="guess-score">${percentage}%</span>
+        </div>
+        <div class="progress-base">
+          <div class="progress-value ${colorClasses[index]}" style="width:0%" data-final="${percentage}"></div>
+        </div>`;
+      statsContainer.appendChild(statRow);
+    });
+
+    // Animate the widths
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.progress-value').forEach(bar => {
+        bar.style.width = bar.dataset.final + '%';
+      });
+    });
+
+    runBtn.disabled = false;
+  }
+
+  // Clear everything
+  function resetApp() {
+    document.getElementById('image-wrapper').style.display = 'none';
+    document.getElementById('output-wrapper').style.display = 'none';
+    document.getElementById('file-selector').value = '';
+    activeImage = null;
+    runBtn.disabled = true;
+    infoMsg.textContent = 'Drag in a new image to start over.';
+  }
+
+  initializeModel();
+</script>
+</body>
+</html>
