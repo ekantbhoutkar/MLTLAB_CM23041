@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Webcam Object Detection — MobileNet</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+
+<style>
+  body {
+    background: #0b0f19;
+    color: #e5e7eb;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 20px;
+  }
+
+  h2 {
+    color: #22c55e;
+    letter-spacing: 0.15em;
+    font-size: 1rem;
+  }
+
+  video {
+    width: 640px;
+    max-width: 100%;
+    border: 1px solid #1f2937;
+    border-radius: 6px;
+  }
+
+  #outputBox {
+    width: 640px;
+    background: #111827;
+    border: 1px solid #1f2937;
+    padding: 12px;
+    border-radius: 6px;
+  }
+
+  .row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+  }
+
+  .progress {
+    flex: 1;
+    margin: 0 10px;
+    height: 6px;
+    background: #1f2937;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .fill {
+    height: 100%;
+    background: #22c55e;
+    transition: width 0.2s;
+  }
+
+  button {
+    padding: 8px 20px;
+    background: #16a34a;
+    border: none;
+    color: white;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+
+  button:disabled {
+    background: #374151;
+    cursor: not-allowed;
+  }
+
+  #info {
+    font-size: 0.85rem;
+    color: #9ca3af;
+  }
+</style>
+</head>
+
+<body>
+
+<h2>Webcam + MobileNet Detection</h2>
+<p id="info">Loading model...</p>
+
+<video id="cam" autoplay muted playsinline></video>
+
+<div id="outputBox">
+  <div id="predictionArea">Waiting...</div>
+</div>
+
+<button id="toggleBtn" disabled>Start</button>
+
+<script>
+let netModel;
+let isActive = false;
+
+const cam = document.getElementById("cam");
+const info = document.getElementById("info");
+const predictionArea = document.getElementById("predictionArea");
+const toggleBtn = document.getElementById("toggleBtn");
+
+// Load MobileNet
+async function initModel() {
+  info.textContent = "Loading MobileNet model...";
+  netModel = await mobilenet.load();
+  info.textContent = "Model ready. Click start.";
+  toggleBtn.disabled = false;
+}
+
+// Start camera
+async function enableCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false
+    });
+
+    cam.srcObject = stream;
+    await cam.play();
+
+    isActive = true;
+    toggleBtn.textContent = "Stop";
+    toggleBtn.onclick = disableCamera;
+
+    info.textContent = "Camera running...";
+    detectFrame();
+  } catch (e) {
+    info.textContent = "Camera access denied!";
+  }
+}
+
+// Stop camera
+function disableCamera() {
+  isActive = false;
+
+  if (cam.srcObject) {
+    cam.srcObject.getTracks().forEach(track => track.stop());
+  }
+
+  cam.srcObject = null;
+  toggleBtn.textContent = "Start";
+  toggleBtn.onclick = enableCamera;
+  predictionArea.innerHTML = "Stopped";
+}
+
+// Detection loop
+async function detectFrame() {
+  if (!isActive) return;
+
+  const results = await netModel.classify(cam, 3);
+  showResults(results);
+
+  requestAnimationFrame(detectFrame);
+}
+
+// Display predictions
+function showResults(list) {
+  predictionArea.innerHTML = list.map(item => {
+    const percent = (item.probability * 100).toFixed(1);
+    return `
+      <div class="row">
+        <span>${item.className.split(",")[0]}</span>
+        <div class="progress">
+          <div class="fill" style="width:${percent}%"></div>
+        </div>
+        <span>${percent}%</span>
+      </div>
+    `;
+  }).join("");
+}
+
+// Button action
+toggleBtn.onclick = enableCamera;
+
+// Initialize
+initModel();
+</script>
+
+</body>
+</html>
