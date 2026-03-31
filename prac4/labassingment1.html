@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Vision AI: Top-3 Classifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; display: flex; justify-content: center; padding: 2.5rem; }
+    #main-wrapper { background-color: #ffffff; border-radius: 12px; border: 1px solid #d1d5db; padding: 2.5rem; width: 100%; max-width: 540px; }
+    h1 { font-size: 22px; font-weight: bold; margin-bottom: 6px; color: #1e293b; }
+    .description { font-size: 14px; color: #64748b; margin-bottom: 1.5rem; }
+    
+    #state-pill {
+      display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+      padding: 5px 12px; border-radius: 25px; background-color: #fef3c7; color: #92400e;
+      margin-bottom: 1.5rem;
+    }
+    #state-pill.active { background-color: #d1fae5; color: #065f46; }
+    .ping-circle { width: 8px; height: 8px; border-radius: 50%; background-color: currentColor; animation: fadeBlink 1.8s infinite; }
+    @keyframes fadeBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    
+    #upload-area {
+      border: 2px dashed #cbd5e1; border-radius: 8px; padding: 3rem 1.2rem;
+      text-align: center; cursor: pointer; background-color: #fcfcfc;
+      transition: all 0.25s ease; position: relative;
+    }
+    #upload-area:hover, #upload-area.drag-hover { background-color: #f0f9ff; border-color: #3b82f6; }
+    #upload-area input { position: absolute; top: 0; left: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    #upload-area p { font-size: 15px; font-weight: 600; color: #334155; margin-top: 10px; }
+    #upload-area small { font-size: 13px; color: #94a3b8; }
+    
+    #image-container { display: none; margin-top: 1.5rem; }
+    #target-image { width: 100%; max-height: 300px; object-fit: contain; border-radius: 8px; border: 1px solid #e2e8f0; background-color: #f1f5f9; display: block; }
+    
+    #analyze-btn {
+      width: 100%; margin-top: 1.2rem; padding: 12px; font-size: 15px; font-weight: bold;
+      border: none; border-radius: 6px; background-color: #2563eb; color: white; cursor: pointer; transition: background-color 0.2s;
+    }
+    #analyze-btn:hover { background-color: #1d4ed8; }
+    #analyze-btn:disabled { background-color: #94a3b8; cursor: not-allowed; }
+    
+    #output-section { display: none; margin-top: 1.8rem; }
+    .section-title { font-size: 14px; font-weight: bold; color: #64748b; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 1rem; }
+    
+    .result-item {
+      display: flex; align-items: center; gap: 16px;
+      border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px;
+      margin-bottom: 12px; background-color: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    .position { font-size: 24px; font-weight: 900; color: #cbd5e1; min-width: 32px; }
+    .pos-1 { color: #fbbf24; } .pos-2 { color: #94a3b8; } .pos-3 { color: #d97706; }
+    .data-group { flex: 1; }
+    .label-text { font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 6px; }
+    .meter-bg { height: 8px; background-color: #f1f5f9; border-radius: 50px; overflow: hidden; }
+    .meter-fill { height: 100%; border-radius: 50px; transition: width 0.8s ease-out; }
+    .fill-1 { background-color: #2563eb; } .fill-2 { background-color: #60a5fa; } .fill-3 { background-color: #bfdbfe; }
+    .score-text { font-size: 14px; font-weight: bold; color: #475569; min-width: 48px; text-align: right; }
+    
+    #system-message { font-size: 14px; color: #64748b; text-align: center; margin-top: 1rem; min-height: 20px; }
+    .loading-spinner { display:inline-block; width:14px; height:14px; border:2px solid #e2e8f0; border-top-color:#2563eb; border-radius:50%; animation:rotateSpinner 0.85s linear infinite; vertical-align:middle; margin-right:6px; }
+    @keyframes rotateSpinner { to { transform: rotate(360deg); } }
+    
+    #clear-btn { display: block; margin: 12px auto 0; font-size: 14px; color: #94a3b8; background: transparent; border: none; cursor: pointer; text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div id="main-wrapper">
+  <h1>Visual Recognition AI</h1>
+  <p class="description">Extracting the top 3 matches — processed locally</p>
+
+  <div id="state-pill"><span class="ping-circle"></span><span id="state-label">Fetching Neural Net...</span></div>
+
+  <div id="upload-area" onclick="document.getElementById('image-uploader').click()">
+    <input type="file" id="image-uploader" accept="image/*" onchange="processImageSelection(event)">
+    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" style="display:block;margin:0 auto">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drag & drop a picture here</p>
+    <small>or click to select your file</small>
+  </div>
+
+  <div id="image-container">
+    <img id="target-image" src="" alt="Selected visual"/>
+    <button id="analyze-btn" onclick="runInference()" disabled>Run Analysis</button>
+    <button id="clear-btn" onclick="startOver()">Select a different picture</button>
+  </div>
+
+  <div id="output-section">
+    <p class="section-title">Highest Confidence Matches</p>
+    <div id="prediction-list"></div>
+  </div>
+
+  <p id="system-message"></p>
+</div>
+
+<script>
+let mobilenetModel = null;
+let selectedImgElement = null;
+
+const sysMessage = document.getElementById('system-message');
+const execBtn = document.getElementById('analyze-btn');
+const statePill = document.getElementById('state-pill');
+const stateLabel = document.getElementById('state-label');
+
+async function initNetwork() {
+  sysMessage.innerHTML = '<span class="loading-spinner"></span> Loading MobileNet v2 architecture...';
+  try {
+    mobilenetModel = await mobilenet.load({ version: 2, alpha: 1.0 });
+    stateLabel.textContent = 'MobileNet v2 Online';
+    statePill.classList.add('active');
+    sysMessage.textContent = 'Neural network ready. Please provide an image.';
+    if (selectedImgElement) execBtn.disabled = false;
+  } catch(err) {
+    stateLabel.textContent = 'Initialization Error';
+    sysMessage.textContent = 'Failed to download the model. Verify your connection.';
+  }
+}
+
+function processImageSelection(event) {
+  const chosenFile = event.target.files[0];
+  if (!chosenFile) return;
+  const fileReader = new FileReader();
+  
+  fileReader.onload = ev => {
+    const visualElement = document.getElementById('target-image');
+    visualElement.src = ev.target.result;
+    
+    visualElement.onload = () => {
+      selectedImgElement = visualElement;
+      document.getElementById('image-container').style.display = 'block';
+      document.getElementById('output-section').style.display = 'none';
+      document.getElementById('prediction-list').innerHTML = '';
+      if (mobilenetModel) execBtn.disabled = false;
+      sysMessage.textContent = 'Picture loaded. Awaiting analysis.';
+    };
+  };
+  fileReader.readAsDataURL(chosenFile);
+}
+
+const dropZone = document.getElementById('upload-area');
+dropZone.addEventListener('dragover', ev => { ev.preventDefault(); dropZone.classList.add('drag-hover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-hover'));
+dropZone.addEventListener('drop', ev => {
+  ev.preventDefault(); 
+  dropZone.classList.remove('drag-hover');
+  const droppedItem = ev.dataTransfer.files[0];
+  if (droppedItem && droppedItem.type.startsWith('image/')) {
+    processImageSelection({ target: { files: [droppedItem] } });
+  }
+});
+
+async function runInference() {
+  if (!mobilenetModel || !selectedImgElement) return;
+  execBtn.disabled = true;
+  sysMessage.innerHTML = '<span class="loading-spinner"></span> Analyzing visual data...';
+  document.getElementById('output-section').style.display = 'none';
+  
+  try {
+    const predictions = await mobilenetModel.classify(selectedImgElement, 3);
+    displayOutcomes(predictions);
+    sysMessage.textContent = '';
+  } catch(err) {
+    sysMessage.textContent = 'Analysis encountered an error. Please try again.';
+    execBtn.disabled = false;
+  }
+}
+
+function displayOutcomes(predictions) {
+  const listContainer = document.getElementById('prediction-list');
+  listContainer.innerHTML = '';
+  document.getElementById('output-section').style.display = 'block';
+  
+  const rankStyles = ['pos-1', 'pos-2', 'pos-3'];
+  const fillStyles = ['fill-1', 'fill-2', 'fill-3'];
+  const rankNumbers = ['1', '2', '3'];
+  
+  predictions.forEach((item, index) => {
+    const confidence = (item.probability * 100).toFixed(1);
+    const primaryName = item.className.split(',')[0];
+    const wrapperDiv = document.createElement('div');
+    
+    wrapperDiv.className = 'result-item';
+    wrapperDiv.innerHTML = `
+      <div class="position ${rankStyles[index]}">#${rankNumbers[index]}</div>
+      <div class="data-group">
+        <div class="label-text">${primaryName}</div>
+        <div class="meter-bg"><div class="meter-fill ${fillStyles[index]}" style="width:0" data-target="${confidence}"></div></div>
+      </div>
+      <div class="score-text">${confidence}%</div>`;
+    listContainer.appendChild(wrapperDiv);
+  });
+  
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.meter-fill').forEach(bar => bar.style.width = bar.dataset.target + '%');
+  });
+  execBtn.disabled = false;
+}
+
+function startOver() {
+  document.getElementById('image-container').style.display = 'none';
+  document.getElementById('output-section').style.display = 'none';
+  document.getElementById('image-uploader').value = '';
+  selectedImgElement = null; 
+  execBtn.disabled = true;
+  sysMessage.textContent = 'Provide a new picture to begin.';
+}
+
+initNetwork();
+</script>
+</body>
+</html>
