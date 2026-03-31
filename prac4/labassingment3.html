@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>MobileNet vs EfficientNet Comparison</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #f5f7fc; padding: 2rem; display: flex; justify-content: center; }
+    #main-wrapper { background: #ffffff; border-radius: 14px; border: 1px solid #dfdfdf; padding: 2rem; width: 100%; max-width: 760px; }
+    h1 { font-size: 20px; font-weight: bold; margin-bottom: 4px; color: #111; }
+    .tagline { font-size: 13px; color: #888; margin-bottom: 1.25rem; }
+
+    .status-chips { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+      padding: 4px 12px; border-radius: 20px; background: #fff8d6; color: #7a5800;
+    }
+    .chip.loaded { background: #e3f5e8; color: #1a632b; }
+    .pulse-circle { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulseFade 2s infinite; }
+    @keyframes pulseFade { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+    #upload-area {
+      border: 2px dashed #cccccc; border-radius: 10px; padding: 2rem 1rem;
+      text-align: center; cursor: pointer; background: #fcfcfc;
+      transition: all 0.25s ease; position: relative; margin-bottom: 1rem;
+    }
+    #upload-area:hover, #upload-area.hover-state { background: #eff5ff; border-color: #3b82f6; }
+    #upload-area input { position: absolute; top: 0; left: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    #upload-area p { font-size: 14px; font-weight: 600; color: #333; }
+    #upload-area small { font-size: 12px; color: #999; }
+
+    #image-preview { display: none; margin-bottom: 1rem; }
+    #source-img { width: 100%; max-height: 260px; object-fit: contain; border-radius: 10px; border: 1px solid #eeeeee; background: #f0f0f0; display: block; }
+
+    #action-btn {
+      width: 100%; padding: 12px; font-size: 14px; font-weight: bold; border: none; border-radius: 8px;
+      background: #1972e6; color: white; cursor: pointer; margin-bottom: 0.5rem; transition: background 0.2s;
+    }
+    #action-btn:hover { background: #155bb5; }
+    #action-btn:disabled { background: #b0b8c8; cursor: not-allowed; }
+    #clear-btn { display: block; margin: 0 auto 1.5rem; font-size: 13px; color: #a1a1a1; background: transparent; border: none; cursor: pointer; text-decoration: underline; }
+
+    #results-panel { display: none; }
+    .split-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 1.5rem; }
+    .network-col { border: 1px solid #e0e8ff; border-radius: 12px; overflow: hidden; }
+    .col-title { padding: 12px 14px; font-size: 13px; font-weight: bold; }
+    .theme-mob { background: #e8f0fe; color: #1a4c8b; }
+    .theme-eff { background: #fce8e6; color: #8b1a1a; }
+    .net-details { font-size: 11px; font-weight: normal; color: inherit; opacity: 0.75; display: block; margin-top: 2px; }
+    
+    .guess-list { padding: 12px 14px; }
+    .guess-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .rank-num { font-size: 18px; font-weight: 900; color: #dfdfdf; min-width: 24px; }
+    .top-1 { color: #f5c842; } .top-2 { color: #b0b8c8; } .top-3 { color: #cd8558; }
+    .guess-details { flex: 1; }
+    .guess-label { font-size: 13px; font-weight: bold; color: #222; margin-bottom: 4px; }
+    .progress-bg { height: 6px; background: #f0f0f0; border-radius: 50px; overflow: hidden; }
+    .progress-fg { height: 100%; border-radius: 50px; transition: width 0.75s ease-out; }
+    .bar-mob-1 { background: #1972e6; } .bar-mob-2 { background: #7ab2f0; } .bar-mob-3 { background: #beddfc; }
+    .bar-eff-1 { background: #e63946; } .bar-eff-2 { background: #ef8b8b; } .bar-eff-3 { background: #fad2d2; }
+    .guess-score { font-size: 12px; font-weight: bold; color: #555; min-width: 38px; text-align: right; }
+
+    .analysis-box { border: 1px solid #e2e2e2; border-radius: 12px; padding: 16px; }
+    .analysis-heading { font-size: 13px; font-weight: bold; color: #888; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .stat-box { background: #f8faff; border: 1px solid #e0e8ff; border-radius: 8px; padding: 12px; text-align: center; }
+    .stat-figure { font-size: 20px; font-weight: 900; color: #1972e6; margin-bottom: 2px; }
+    .stat-desc { font-size: 11px; color: #888; }
+    
+    .crown-tag { display: inline-block; font-size: 12px; font-weight: bold; padding: 3px 10px; border-radius: 20px; margin-top: 10px; }
+    .tag-mob { background: #e8f0fe; color: #1a4c8b; }
+    .tag-eff { background: #fce8e6; color: #8b1a1a; }
+    .tag-draw { background: #f0f0f0; color: #555; }
+    
+    .conclusion-text { font-size: 13px; color: #555; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eeeeee; line-height: 1.6; }
+    .conclusion-text b { color: #222; }
+
+    .speed-row { display: flex; gap: 10px; margin-top: 12px; }
+    .speed-box { flex: 1; background: #f9f9f9; border: 1px solid #eeeeee; border-radius: 8px; padding: 10px; text-align: center; }
+    .speed-num { font-size: 18px; font-weight: 900; color: #333; }
+    .speed-desc { font-size: 11px; color: #888; }
+
+    #sys-state { font-size: 13px; color: #888; text-align: center; margin-top: 0.75rem; min-height: 18px; }
+    .spin-ring { display: inline-block; width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #1972e6; border-radius: 50%; animation: rotater 0.85s linear infinite; vertical-align: middle; margin-right: 6px; }
+    @keyframes rotater { to { transform: rotate(360deg); } }
+
+    @media(max-width: 520px) { .split-grid { grid-template-columns: 1fr; } .stats-grid { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+<div id="main-wrapper">
+  <h1>MobileNet vs EfficientNet</h1>
+  <p class="tagline">Side-by-side in-browser model comparison — upload any image</p>
+
+  <div class="status-chips">
+    <div id="chip-mob" class="chip"><span class="pulse-circle"></span><span id="text-mob">Loading MobileNet v2...</span></div>
+    <div id="chip-eff" class="chip"><span class="pulse-circle"></span><span id="text-eff">Loading EfficientNet-Lite4...</span></div>
+  </div>
+
+  <div id="upload-area" onclick="document.getElementById('image-uploader').click()">
+    <input type="file" id="image-uploader" accept="image/*" onchange="processSelectedFile(event)">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#a3a3a3" stroke-width="1.5" style="display:block;margin:0 auto 10px">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drop an image here</p>
+    <small>or click to browse — JPG, PNG, WebP</small>
+  </div>
+
+  <div id="image-preview"><img id="source-img" src="" alt="Selected image"/></div>
+
+  <button id="action-btn" onclick="startDuel()" disabled>Compare Both Models</button>
+  <button id="clear-btn" onclick="startOver()" style="display:none">Use a different image</button>
+
+  <div id="results-panel">
+    <div class="split-grid">
+      <div class="network-col">
+        <div class="col-title theme-mob">
+          MobileNet v2
+          <span class="net-details">ImageNet · ~14MB · alpha 1.0</span>
+        </div>
+        <div class="guess-list" id="mob-outputs"></div>
+      </div>
+      <div class="network-col">
+        <div class="col-title theme-eff">
+          EfficientNet-Lite4
+          <span class="net-details">ImageNet · ~51MB · via TFJS graph</span>
+        </div>
+        <div class="guess-list" id="eff-outputs"></div>
+      </div>
+    </div>
+
+    <div class="analysis-box">
+      <p class="analysis-heading">Analysis</p>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-figure" id="val-mob-score">—</div>
+          <div class="stat-desc">MobileNet top-1 confidence</div>
+          <div id="win-mob"></div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-figure" id="val-eff-score">—</div>
+          <div class="stat-desc">EfficientNet top-1 confidence</div>
+          <div id="win-eff"></div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-figure" id="val-match">—</div>
+          <div class="stat-desc">Top-1 agreement</div>
+        </div>
+      </div>
+      <div class="speed-row">
+        <div class="speed-box"><div class="speed-num" id="ms-mob">—</div><div class="speed-desc">MobileNet inference (ms)</div></div>
+        <div class="speed-box"><div class="speed-num" id="ms-eff">—</div><div class="speed-desc">EfficientNet inference (ms)</div></div>
+        <div class="speed-box"><div class="speed-num" id="ms-winner">—</div><div class="speed-desc">Faster model</div></div>
+      </div>
+      <p class="conclusion-text" id="conclusion-text"></p>
+    </div>
+  </div>
+
+  <p id="sys-state"></p>
+</div>
+
+<script>
+let netMob = null, netEff = null, activePic = null;
+const stateText = document.getElementById('sys-state');
+const triggerBtn = document.getElementById('action-btn');
+
+const LITE4_MODEL_URL = 'https://tfhub.dev/tensorflow/lite-model/efficientnet/lite4/classification/2/default/2';
+const IMAGENET_CLASSES_URL = 'https://storage.googleapis.com/download.tensorflow.org/data/ImageNetLabels.txt';
+let effCategories = [];
+
+async function initializeNetworks() {
+  stateText.innerHTML = '<span class="spin-ring"></span> Loading both models...';
+
+  try {
+    netMob = await mobilenet.load({ version: 2, alpha: 1.0 });
+    document.getElementById('text-mob').textContent = 'MobileNet v2 ready';
+    document.getElementById('chip-mob').classList.add('loaded');
+  } catch(err) {
+    document.getElementById('text-mob').textContent = 'MobileNet failed';
+  }
+
+  try {
+    const response = await fetch(IMAGENET_CLASSES_URL);
+    const textData = await response.text();
+    effCategories = textData.trim().split('\n').map(label => label.trim());
+
+    netEff = await tf.loadGraphModel(LITE4_MODEL_URL, { fromTFHub: true });
+    document.getElementById('text-eff').textContent = 'EfficientNet-Lite4 ready';
+    document.getElementById('chip-eff').classList.add('loaded');
+  } catch(err) {
+    try {
+      netEff = await mobilenet.load({ version: 1, alpha: 1.0 });
+      effCategories = null; 
+      document.getElementById('text-eff').textContent = 'MobileNet v1 ready (fallback)';
+      document.getElementById('chip-eff').classList.add('loaded');
+      document.querySelector('.theme-eff').innerHTML =
+        'MobileNet v1 <span class="net-details">Fallback · ImageNet · alpha 1.0</span>';
+    } catch(fallbackErr) {
+      document.getElementById('text-eff').textContent = 'Second model failed';
+    }
+  }
+
+  stateText.textContent = 'Both models ready. Upload an image to compare.';
+  if (activePic) triggerBtn.disabled = false;
+}
+
+function processSelectedFile(event) {
+  const chosenFile = event.target.files[0];
+  if (!chosenFile) return;
+  const fReader = new FileReader();
+  
+  fReader.onload = ev => {
+    const imgEl = document.getElementById('source-img');
+    imgEl.src = ev.target.result;
+    
+    imgEl.onload = () => {
+      activePic = imgEl;
+      document.getElementById('image-preview').style.display = 'block';
+      document.getElementById('results-panel').style.display = 'none';
+      document.getElementById('clear-btn').style.display = 'block';
+      if (netMob && netEff) triggerBtn.disabled = false;
+      stateText.textContent = 'Image loaded. Click Compare.';
+    };
+  };
+  fReader.readAsDataURL(chosenFile);
+}
+
+const uploaderNode = document.getElementById('upload-area');
+uploaderNode.addEventListener('dragover', e => { e.preventDefault(); uploaderNode.classList.add('hover-state'); });
+uploaderNode.addEventListener('dragleave', () => uploaderNode.classList.remove('hover-state'));
+uploaderNode.addEventListener('drop', e => {
+  e.preventDefault(); uploaderNode.classList.remove('hover-state');
+  const droppedItem = e.dataTransfer.files[0];
+  if (droppedItem?.type.startsWith('image/')) processSelectedFile({ target: { files: [droppedItem] } });
+});
+
+async function executeMobileNet() {
+  const startTimer = performance.now();
+  const predictions = await netMob.classify(activePic, 3);
+  const endTimer = performance.now();
+  return {
+    results: predictions.map(p => ({ label: p.className.split(',')[0], score: p.probability })),
+    duration: Math.round(endTimer - startTimer)
+  };
+}
+
+async function executeEfficientNet() {
+  const startTimer = performance.now();
+
+  if (!effCategories) {
+    const fallbackPreds = await netEff.classify(activePic, 3);
+    const endTimer = performance.now();
+    return {
+      results: fallbackPreds.map(p => ({ label: p.className.split(',')[0], score: p.probability })),
+      duration: Math.round(endTimer - startTimer)
+    };
+  }
+
+  const memoryTensor = tf.tidy(() => {
+    return tf.browser.fromPixels(activePic)
+      .resizeBilinear([320, 320])
+      .toFloat()
+      .div(255.0)
+      .expandDims(0);
+  });
+
+  const rawLogits = await netEff.predict(memoryTensor);
+  memoryTensor.dispose();
+
+  const dataArray = await rawLogits.data();
+  rawLogits.dispose();
+
+  const exponentials = Array.from(dataArray).map(v => Math.exp(v));
+  const totalSum = exponentials.reduce((acc, val) => acc + val, 0);
+  const probabilities = exponentials.map(v => v / totalSum);
+
+  const mappedScores = probabilities.map((p, index) => ({ score: p, id: index }));
+  mappedScores.sort((a, b) => b.score - a.score);
+  
+  const topThree = mappedScores.slice(0, 3).map(obj => ({
+    label: effCategories[obj.id] || `Class ${obj.id}`,
+    score: obj.score
+  }));
+
+  const endTimer = performance.now();
+  return { results: topThree, duration: Math.round(endTimer - startTimer) };
+}
+
+async function startDuel() {
+  if (!netMob || !netEff || !activePic) return;
+  triggerBtn.disabled = true;
+  document.getElementById('results-panel').style.display = 'none';
+  
+  stateText.innerHTML = '<span class="spin-ring"></span> Running MobileNet...';
+  let outMob, outEff;
+
+  try { outMob = await executeMobileNet(); } catch(err) { outMob = { results: [], duration: 0 }; }
+  stateText.innerHTML = '<span class="spin-ring"></span> Running EfficientNet...';
+  try { outEff = await executeEfficientNet(); } catch(err) { outEff = { results: [], duration: 0 }; }
+
+  drawGuesses('mob-outputs', outMob.results, ['bar-mob-1','bar-mob-2','bar-mob-3']);
+  drawGuesses('eff-outputs', outEff.results, ['bar-eff-1','bar-eff-2','bar-eff-3']);
+  displayAnalysis(outMob, outEff);
+  
+  document.getElementById('results-panel').style.display = 'block';
+  stateText.textContent = '';
+  triggerBtn.disabled = false;
+}
+
+function drawGuesses(wrapperId, arrayData, colorClasses) {
+  const wrapper = document.getElementById(wrapperId);
+  wrapper.innerHTML = '';
+  const tierClasses = ['top-1', 'top-2', 'top-3'];
+  
+  arrayData.forEach((item, index) => {
+    const percentage = (item.score * 100).toFixed(1);
+    const lineItem = document.createElement('div');
+    lineItem.className = 'guess-row';
+    lineItem.innerHTML = `
+      <div class="rank-num ${tierClasses[index]}">#${index+1}</div>
+      <div class="guess-details">
+        <div class="guess-label">${item.label}</div>
+        <div class="progress-bg"><div class="progress-fg ${colorClasses[index]}" style="width:0" data-width="${percentage}"></div></div>
+      </div>
+      <div class="guess-score">${percentage}%</div>`;
+    wrapper.appendChild(lineItem);
+  });
+  
+  requestAnimationFrame(() => {
+    wrapper.querySelectorAll('.progress-fg').forEach(bar => {
+      bar.style.width = bar.dataset.width + '%';
+    });
+  });
+}
+
+function displayAnalysis(dataMob, dataEff) {
+  const scoreMob = dataMob.results[0] ? (dataMob.results[0].score * 100).toFixed(1) + '%' : '—';
+  const scoreEff = dataEff.results[0] ? (dataEff.results[0].score * 100).toFixed(1) + '%' : '—';
+
+  document.getElementById('val-mob-score').textContent = scoreMob;
+  document.getElementById('val-eff-score').textContent = scoreEff;
+
+  const rawMob = dataMob.results[0]?.score || 0;
+  const rawEff = dataEff.results[0]?.score || 0;
+  
+  if (Math.abs(rawMob - rawEff) < 0.03) {
+    document.getElementById('win-mob').innerHTML = '<span class="crown-tag tag-draw">Tied</span>';
+    document.getElementById('win-eff').innerHTML = '<span class="crown-tag tag-draw">Tied</span>';
+  } else if (rawMob > rawEff) {
+    document.getElementById('win-mob').innerHTML = '<span class="crown-tag tag-mob">Higher confidence</span>';
+    document.getElementById('win-eff').innerHTML = '';
+  } else {
+    document.getElementById('win-mob').innerHTML = '';
+    document.getElementById('win-eff').innerHTML = '<span class="crown-tag tag-eff">Higher confidence</span>';
+  }
+
+  const bestMob = dataMob.results[0]?.label.toLowerCase() || '';
+  const bestEff = dataEff.results[0]?.label.toLowerCase() || '';
+  const isMatch = bestMob && bestEff && (bestMob.includes(bestEff.split(' ')[0]) || bestEff.includes(bestMob.split(' ')[0]));
+  document.getElementById('val-match').textContent = isMatch ? 'YES' : 'NO';
+
+  document.getElementById('ms-mob').textContent = dataMob.duration;
+  document.getElementById('ms-eff').textContent = dataEff.duration;
+  document.getElementById('ms-winner').textContent = dataMob.duration <= dataEff.duration ? 'MobileNet' : 'EfficientNet';
+
+  const textOutput = isMatch
+    ? `<b>Both models agree</b> — top prediction is <b>${dataMob.results[0]?.label}</b>. High agreement usually indicates strong visual features in the image.`
+    : `<b>Models disagree</b> — MobileNet says <b>${dataMob.results[0]?.label}</b>, EfficientNet says <b>${dataEff.results[0]?.label}</b>. EfficientNet-Lite4 tends to be more accurate on complex or fine-grained images. MobileNet is faster and better suited to real-time use.`;
+  
+  document.getElementById('conclusion-text').innerHTML = textOutput;
+}
+
+function startOver() {
+  document.getElementById('image-preview').style.display = 'none';
+  document.getElementById('results-panel').style.display = 'none';
+  document.getElementById('clear-btn').style.display = 'none';
+  document.getElementById('image-uploader').value = '';
+  activePic = null;
+  triggerBtn.disabled = true;
+  stateText.textContent = 'Upload a new image.';
+}
+
+initializeNetworks();
+</script>
+</body>
+</html>
