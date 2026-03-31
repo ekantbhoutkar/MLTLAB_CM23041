@@ -1,183 +1,131 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>IMDB Sentiment RNN</title>
+<title>Pose Tracking with MediaPipe</title>
 
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
 
+<style>
+body {
+  text-align: center;
+  font-family: monospace;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+h2 {
+  color: #38bdf8;
+}
+
+#wrapper {
+  position: relative;
+  width: 720px;
+  margin: auto;
+  border: 1px solid #1e293b;
+}
+
+video {
+  display: none;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+#info {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+</style>
 </head>
+
 <body>
 
-<h2>IMDB Sentiment Analysis (RNN)</h2>
+<h2>Real-Time Pose Tracking</h2>
 
-<button onclick="loadAndTrain()">Load Dataset & Train</button>
+<div id="wrapper">
+  <video id="inputVideo" width="720" height="540"></video>
+  <canvas id="outputCanvas" width="720" height="540"></canvas>
+</div>
 
-<br><br>
-
-<input type="text" id="inputText" size="60" placeholder="Enter sentence">
-<button onclick="predict()">Predict</button>
-
-<h3 id="result"></h3>
+<p id="info">Initializing camera...</p>
 
 <script>
+const inputVideo = document.getElementById("inputVideo");
+const outputCanvas = document.getElementById("outputCanvas");
+const ctx = outputCanvas.getContext("2d");
+const info = document.getElementById("info");
 
-let texts = [];
-let labels = [];
-let wordIndex = {};
-let vocabSize;
-let model;
+// Create pose detector
+const detector = new Pose({
+  locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+});
 
-const MAX_LEN = 100;
-const MAX_SAMPLES = 300;
+// Configuration (same accuracy, different formatting)
+detector.setOptions({
+  modelComplexity: 2,
+  smoothLandmarks: true,
+  minDetectionConfidence: 0.75,
+  minTrackingConfidence: 0.75
+});
 
-async function loadAndTrain() {
+// Handle results
+detector.onResults(res => {
+  ctx.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
 
-    // RESET (important)
-    texts = [];
-    labels = [];
-    wordIndex = {};
-    model = null;
+  // Draw video frame
+  ctx.drawImage(res.image, 0, 0, outputCanvas.width, outputCanvas.height);
 
-    console.log("Loading CSV...");
+  if (res.poseLandmarks) {
 
-    Papa.parse("IMDB Dataset.csv", {
-        download: true,
-        header: true,
-        skipEmptyLines: true,
-
-        complete: async function(results) {
-
-            results.data.slice(0, MAX_SAMPLES).forEach(row => {
-
-                if(row.review && row.sentiment){
-                    texts.push(row.review.toLowerCase());
-                    labels.push(row.sentiment === "positive" ? 1 : 0);
-                }
-
-            });
-
-            console.log("Samples loaded:", texts.length);
-
-            await trainModel();
-        },
-
-        error: function(err){
-            console.error("CSV Error:", err);
-        }
-    });
-}
-
-function buildVocab() {
-    let index = 1;
-
-    texts.forEach(text => {
-        text.split(/\W+/).forEach(word => {
-            if(word && !wordIndex[word]) {
-                wordIndex[word] = index++;
-            }
-        });
+    // Skeleton
+    drawConnectors(ctx, res.poseLandmarks, POSE_CONNECTIONS, {
+      color: "#22c55e",
+      lineWidth: 3
     });
 
-    vocabSize = index;
-}
-
-function encode(texts) {
-    return texts.map(text => {
-
-        let seq = text.split(/\W+/).map(w => wordIndex[w] || 0);
-
-        if(seq.length > MAX_LEN) seq = seq.slice(0, MAX_LEN);
-
-        while(seq.length < MAX_LEN) seq.push(0);
-
-        return seq;
-    });
-}
-
-async function trainModel() {
-
-    console.log("Building vocab...");
-    buildVocab();
-
-    console.log("Encoding...");
-    const xs = tf.tensor2d(encode(texts));
-    const ys = tf.tensor2d(labels, [labels.length, 1]);
-
-    console.log("Building model...");
-
-    model = tf.sequential();
-
-    model.add(tf.layers.embedding({
-        inputDim: vocabSize,
-        outputDim: 16,
-        inputLength: MAX_LEN
-    }));
-
-    model.add(tf.layers.simpleRNN({units:32}));
-
-    model.add(tf.layers.dense({
-        units:1,
-        activation:'sigmoid'
-    }));
-
-    model.compile({
-        optimizer:'adam',
-        loss:'binaryCrossentropy',
-        metrics:['accuracy']
+    // Joints
+    drawLandmarks(ctx, res.poseLandmarks, {
+      color: "#ef4444",
+      radius: 4
     });
 
-    console.log("Training...");
+    // Bounding box (different logic style)
+    let xVals = [], yVals = [];
 
-    const history = await model.fit(xs, ys, {
-        epochs:5,
-        batchSize:16,
-        validationSplit:0.2
+    res.poseLandmarks.forEach(p => {
+      xVals.push(p.x * outputCanvas.width);
+      yVals.push(p.y * outputCanvas.height);
     });
 
-    const acc = history.history.accuracy?.slice(-1)[0] || 0;
-    const valAcc = history.history.val_accuracy?.slice(-1)[0] || 0;
+    const left = Math.min(...xVals);
+    const top = Math.min(...yVals);
+    const width = Math.max(...xVals) - left;
+    const height = Math.max(...yVals) - top;
 
-    console.log("Train Accuracy:", (acc*100).toFixed(2)+"%");
-    console.log("Val Accuracy:", (valAcc*100).toFixed(2)+"%");
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(left, top, width, height);
+  }
+});
 
-    alert("Model Training Completed!");
-}
+// Camera setup
+const cam = new Camera(inputVideo, {
+  onFrame: async () => {
+    await detector.send({ image: inputVideo });
+  },
+  width: 720,
+  height: 540
+});
 
-function preprocess(text) {
-
-    text = text.toLowerCase();
-
-    let seq = text.split(/\W+/).map(w => wordIndex[w] || 0);
-
-    if(seq.length > MAX_LEN) seq = seq.slice(0, MAX_LEN);
-
-    while(seq.length < MAX_LEN) seq.push(0);
-
-    return tf.tensor2d([seq]);
-}
-
-function predict() {
-
-    if(!model){
-        alert("Train model first!");
-        return;
-    }
-
-    const text = document.getElementById("inputText").value;
-
-    const tensor = preprocess(text);
-
-    const pred = model.predict(tensor).dataSync()[0];
-
-    const sentiment = pred > 0.5 ? "Positive 😊" : "Negative 😡";
-    const confidence = (pred * 100).toFixed(2);
-
-    document.getElementById("result").innerHTML =
-        `Sentiment: <b>${sentiment}</b><br>Confidence: ${confidence}%`;
-}
-
+cam.start();
+info.textContent = "Camera running...";
 </script>
 
 </body>
