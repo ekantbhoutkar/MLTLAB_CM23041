@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>MobileNet Accuracy Tester</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f4f6fb; padding: 2rem; display: flex; justify-content: center; }
+    #main-app { background: #fff; border-radius: 14px; border: 1px solid #e0e0e0; padding: 2rem; width: 100%; max-width: 700px; }
+    h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #888; margin-bottom: 1.25rem; }
+    #status-badge { display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 10px;border-radius:20px;background:#fff8e1;color:#7a5800;margin-bottom:1.25rem; }
+    #status-badge.active { background:#e6f4ea;color:#1e6b3a; }
+    .indicator { width:7px;height:7px;border-radius:50%;background:currentColor;animation:pulse 2s infinite; }
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+    .guide {
+      background: #f0f7ff; border: 1px solid #cce0ff; border-radius: 10px;
+      padding: 14px 16px; font-size: 13px; color: #1a4c8b; margin-bottom: 1.25rem; line-height: 1.7;
+    }
+    .guide b { font-weight: 700; }
+
+    #drop-region {
+      border: 2px dashed #ccc; border-radius: 10px; padding: 2rem 1rem;
+      text-align: center; cursor: pointer; background: #fafafa;
+      transition: all .2s; position: relative;
+    }
+    #drop-region:hover, #drop-region.hovered { background: #eef4ff; border-color: #4a90e2; }
+    #drop-region input { position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%; }
+    #drop-region p { font-size:14px;font-weight:500;color:#333; }
+    #drop-region small { font-size:12px;color:#aaa; }
+
+    #img-queue { margin-top: 1.25rem; display: none; }
+    .queue-title { font-size:13px;font-weight:700;color:#888;letter-spacing:.05em;text-transform:uppercase;margin-bottom:.75rem; }
+    .list-item {
+      display: flex; align-items: center; gap: 12px;
+      border: 1px solid #eee; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;
+    }
+    .img-thumb { width: 52px; height: 52px; border-radius: 6px; object-fit: cover; background: #eee; flex-shrink: 0; }
+    .item-details { flex: 1; }
+    .item-title { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 4px; }
+    .input-row { display: flex; align-items: center; gap: 8px; }
+    .expect-input {
+      font-size: 12px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 6px;
+      outline: none; width: 180px; color: #333;
+    }
+    .expect-hint { font-size: 11px; color: #aaa; }
+    .del-btn { font-size: 18px; color: #ccc; cursor: pointer; background: none; border: none; padding: 0 4px; }
+    .del-btn:hover { color: #e53935; }
+
+    #start-btn {
+      width: 100%; margin-top: 1rem; padding: 11px; font-size: 14px; font-weight: 700;
+      border: none; border-radius: 8px; background: #1a73e8; color: #fff; cursor: pointer;
+    }
+    #start-btn:hover { background: #1558b0; }
+    #start-btn:disabled { background: #b0b8c8; cursor: not-allowed; }
+
+    #test-summary { display: none; margin-top: 1.5rem; }
+    .stat-boxes { display: flex; gap: 12px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .stat-box {
+      flex: 1; min-width: 120px; background: #f8faff; border: 1px solid #e0e8ff;
+      border-radius: 10px; padding: 14px 16px; text-align: center;
+    }
+    .stat-num { font-size: 28px; font-weight: 800; color: #1a73e8; }
+    .stat-label { font-size: 12px; color: #888; margin-top: 2px; }
+    .res-title { font-size:13px;font-weight:700;color:#888;letter-spacing:.05em;text-transform:uppercase;margin-bottom:.75rem; }
+    .res-row {
+      display: flex; align-items: center; gap: 12px;
+      border: 1px solid #eee; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px;
+    }
+    .res-thumb { width: 52px; height: 52px; border-radius: 6px; object-fit: cover; flex-shrink: 0; }
+    .res-info { flex: 1; }
+    .res-top { font-size: 14px; font-weight: 600; color: #1a1a1a; margin-bottom: 3px; }
+    .res-details { font-size: 12px; color: #888; }
+    .res-expected { font-size: 12px; color: #555; margin-top: 3px; }
+    .tag-correct { background: #e6f4ea; color: #1e6b3a; font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+    .tag-wrong { background: #fce8e6; color: #b71c1c; font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+    .tag-none { background: #f5f5f5; color: #888; font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 700; }
+
+    #sys-msg { font-size: 13px; color: #888; text-align: center; margin-top: .75rem; min-height: 18px; }
+    .spinner { display:inline-block;width:13px;height:13px;border:2px solid #ddd;border-top-color:#1a73e8;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:5px; }
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<div id="main-app">
+  <h1>Accuracy Tester</h1>
+  <p class="subtitle">Upload 5+ images, enter expected labels, and measure MobileNet accuracy</p>
+  <div id="status-badge"><span class="indicator"></span><span id="badge-lbl">Loading MobileNet v2...</span></div>
+
+  <div class="guide">
+    <b>How to use:</b> Upload 5 or more images. For each image, type what you expect the model to find
+    (e.g. <b>dog</b>, <b>cat</b>, <b>car</b>). Then click <b>Run Accuracy Test</b>.
+    A prediction is counted as correct if your label appears anywhere in the model's top-3 class names.
+  </div>
+
+  <div id="drop-region" onclick="document.getElementById('file-selector').click()">
+    <input type="file" id="file-selector" accept="image/*" multiple onchange="processFiles(event)">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5" style="display:block;margin:0 auto 10px">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <p>Drop images here or click to browse</p>
+    <small>Select 5 or more images at once (JPG, PNG, WebP)</small>
+  </div>
+
+  <div id="img-queue">
+    <p class="queue-title" id="queue-header">Images (0)</p>
+    <div id="queue-container"></div>
+    <button id="start-btn" onclick="executeTest()" disabled>Run Accuracy Test</button>
+  </div>
+
+  <div id="test-summary">
+    <div class="stat-boxes">
+      <div class="stat-box"><div class="stat-num" id="val-acc">—</div><div class="stat-label">Top-3 Accuracy</div></div>
+      <div class="stat-box"><div class="stat-num" id="val-pass">—</div><div class="stat-label">Correct</div></div>
+      <div class="stat-box"><div class="stat-num" id="val-fail">—</div><div class="stat-label">Incorrect</div></div>
+      <div class="stat-box"><div class="stat-num" id="val-skip">—</div><div class="stat-label">Unlabelled</div></div>
+    </div>
+    <p class="res-title">Per-Image Results</p>
+    <div id="res-container"></div>
+  </div>
+
+  <p id="sys-msg"></p>
+</div>
+
+<script>
+let mnNet = null;
+const fileList = [];
+const sysMsgEl = document.getElementById('sys-msg');
+const statusBadge = document.getElementById('status-badge');
+const badgeLbl = document.getElementById('badge-lbl');
+const startBtn = document.getElementById('start-btn');
+
+async function fetchModel() {
+  sysMsgEl.innerHTML = '<span class="spinner"></span> Loading MobileNet v2 (alpha 1.0)...';
+  try {
+    mnNet = await mobilenet.load({ version: 2, alpha: 1.0 });
+    badgeLbl.textContent = 'MobileNet v2 ready';
+    statusBadge.classList.add('active');
+    sysMsgEl.textContent = 'Model ready. Upload 5 or more images.';
+    verifyReadyState();
+  } catch(e) {
+    badgeLbl.textContent = 'Load failed';
+    sysMsgEl.textContent = 'Could not load model.';
+  }
+}
+
+function verifyReadyState() {
+  startBtn.disabled = !(mnNet && fileList.length >= 5);
+}
+
+function processFiles(e) {
+  const chosenFiles = Array.from(e.target.files);
+  let processed = 0;
+  chosenFiles.forEach(fObj => {
+    const fileReader = new FileReader();
+    fileReader.onload = ev => {
+      const tempImg = new Image();
+      tempImg.src = ev.target.result;
+      tempImg.onload = () => {
+        fileList.push({ fileData: fObj, base64: ev.target.result, domElement: tempImg, expectedText: '' });
+        processed++;
+        if (processed === chosenFiles.length) updateQueueUI();
+      };
+    };
+    fileReader.readAsDataURL(fObj);
+  });
+}
+
+function updateQueueUI() {
+  const container = document.getElementById('queue-container');
+  container.innerHTML = '';
+  document.getElementById('img-queue').style.display = 'block';
+  document.getElementById('queue-header').textContent = `Images (${fileList.length})`;
+
+  fileList.forEach((obj, idx) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'list-item';
+    wrapper.innerHTML = `
+      <img class="img-thumb" src="${obj.base64}"/>
+      <div class="item-details">
+        <div class="item-title">${obj.fileData.name}</div>
+        <div class="input-row">
+          <input class="expect-input" type="text" placeholder="Expected label (e.g. dog)"
+            value="${obj.expectedText}" oninput="fileList[${idx}].expectedText=this.value.trim()"/>
+          <span class="expect-hint">optional but needed for accuracy</span>
+        </div>
+      </div>
+      <button class="del-btn" onclick="discardFile(${idx})">&#x2715;</button>`;
+    container.appendChild(wrapper);
+  });
+
+  verifyReadyState();
+  sysMsgEl.textContent = fileList.length < 5 ? `Add ${5 - fileList.length} more image(s) to enable the test.` : 'Ready. Enter expected labels and run test.';
+}
+
+function discardFile(idx) {
+  fileList.splice(idx, 1);
+  updateQueueUI();
+}
+
+const dropRegion = document.getElementById('drop-region');
+dropRegion.addEventListener('dragover', e => { e.preventDefault(); dropRegion.classList.add('hovered'); });
+dropRegion.addEventListener('dragleave', () => dropRegion.classList.remove('hovered'));
+dropRegion.addEventListener('drop', e => {
+  e.preventDefault(); dropRegion.classList.remove('hovered');
+  const dropped = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+  if (dropped.length) processFiles({ target: { files: dropped } });
+});
+
+async function executeTest() {
+  if (!mnNet || fileList.length < 5) return;
+  startBtn.disabled = true;
+  document.getElementById('test-summary').style.display = 'none';
+  const outList = document.getElementById('res-container');
+  outList.innerHTML = '';
+
+  const gradeBook = [];
+  for (let idx = 0; idx < fileList.length; idx++) {
+    sysMsgEl.innerHTML = `<span class="spinner"></span> Classifying image ${idx + 1} of ${fileList.length}...`;
+    const record = fileList[idx];
+    try {
+      const guesses = await mnNet.classify(record.domElement, 3);
+      const strClasses = guesses.map(g => g.className.toLowerCase());
+      const pct = (guesses[0].probability * 100).toFixed(1);
+      const targetStr = record.expectedText.trim().toLowerCase();
+      
+      let evalStatus = 'none';
+      if (targetStr) {
+        evalStatus = strClasses.some(c => c.includes(targetStr) || targetStr.split(' ').some(w => w.length > 2 && c.includes(w))) ? 'correct' : 'wrong';
+      }
+      gradeBook.push({ record, guesses, evalStatus, pct, strClasses });
+    } catch(err) {
+      gradeBook.push({ record, guesses: [], evalStatus: 'error', pct: 0, strClasses: [] });
+    }
+  }
+
+  const validLabels = gradeBook.filter(g => g.evalStatus !== 'none' && g.evalStatus !== 'error');
+  const countCorrect = gradeBook.filter(g => g.evalStatus === 'correct').length;
+  const countWrong = gradeBook.filter(g => g.evalStatus === 'wrong').length;
+  const countNone = gradeBook.filter(g => g.evalStatus === 'none').length;
+  const accScore = validLabels.length > 0 ? Math.round((countCorrect / validLabels.length) * 100) : 0;
+
+  document.getElementById('val-acc').textContent = validLabels.length > 0 ? accScore + '%' : 'N/A';
+  document.getElementById('val-pass').textContent = countCorrect;
+  document.getElementById('val-fail').textContent = countWrong;
+  document.getElementById('val-skip').textContent = countNone;
+  document.getElementById('test-summary').style.display = 'block';
+
+  gradeBook.forEach(g => {
+    const mainGuess = g.guesses.length ? g.guesses[0].className.split(',')[0] : 'Error';
+    const subGuesses = g.guesses.map((p, i) => `#${i+1} ${p.className.split(',')[0]} (${(p.probability*100).toFixed(1)}%)`).join(' · ');
+    const htmlTag = g.evalStatus === 'correct' ? '<span class="tag-correct">CORRECT</span>'
+      : g.evalStatus === 'wrong' ? '<span class="tag-wrong">INCORRECT</span>'
+      : '<span class="tag-none">NO LABEL</span>';
+    
+    const rowDiv = document.createElement('div');
+    rowDiv.className = 'res-row';
+    rowDiv.innerHTML = `
+      <img class="res-thumb" src="${g.record.base64}"/>
+      <div class="res-info">
+        <div class="res-top">${mainGuess}</div>
+        <div class="res-details">${subGuesses}</div>
+        ${g.record.expectedText ? `<div class="res-expected">Expected: <b>${g.record.expectedText}</b></div>` : ''}
+      </div>
+      ${htmlTag}`;
+    outList.appendChild(rowDiv);
+  });
+
+  sysMsgEl.textContent = `Done! Tested ${fileList.length} images.`;
+  startBtn.disabled = false;
+}
+
+fetchModel();
+</script>
+</body>
+</html>
