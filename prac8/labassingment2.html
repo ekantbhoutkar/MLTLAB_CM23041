@@ -1,0 +1,133 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Assignment 2: Confusion Matrix & Accuracy</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 900px; margin: auto; background: #f4f7f6; }
+        .box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: center; }
+        th { background-color: #34495e; color: white; }
+        .highlight { background-color: #ecf0f1; font-weight: bold; }
+        button { background: #2980b9; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>1. Train Model (3 Fruits)</h2>
+    <p id="status">Loading Model...</p>
+    <input type="file" id="trainApple" multiple> Apple | 
+    <input type="file" id="trainBanana" multiple> Banana | 
+    <input type="file" id="trainMango" multiple> Mango
+</div>
+
+<div class="box">
+    <h2>2. Validation Data (Evaluation)</h2>
+    <p>Upload new images to test accuracy:</p>
+    <input type="file" id="valApple" multiple> Val. Apple | 
+    <input type="file" id="valBanana" multiple> Val. Banana | 
+    <input type="file" id="valMango" multiple> Val. Mango
+    <br><br>
+    <button onclick="evaluateModel()">Run Evaluation & Report</button>
+</div>
+
+<div class="box" id="reportCard" style="display:none;">
+    <h2>3. Final Report</h2>
+    <h3 id="accuracyLabel">Accuracy: --%</h3>
+    <div id="matrixContainer"></div>
+</div>
+
+<script>
+    let net, classifier;
+    const labels = ['Apple', 'Banana', 'Mango'];
+    
+    async function init() {
+        net = await mobilenet.load({version: 2, alpha: 0.50});
+        classifier = knnClassifier.create();
+        document.getElementById('status').innerText = "Model Ready ✅";
+    }
+
+    // Training Logic
+    const trainIds = ['trainApple', 'trainBanana', 'trainMango'];
+    trainIds.forEach((id, i) => {
+        document.getElementById(id).onchange = async (e) => {
+            for (let file of e.target.files) {
+                const img = await fileToImage(file);
+                classifier.addExample(net.infer(img, true), labels[i]);
+            }
+            console.log(`${labels[i]} Trained`);
+        };
+    });
+
+    // Evaluation Logic
+    async function evaluateModel() {
+        const valIds = ['valApple', 'valBanana', 'valMango'];
+        let correct = 0;
+        let total = 0;
+        
+        // Confusion Matrix structure: Matrix[Actual][Predicted]
+        let matrix = {
+            'Apple':  {'Apple': 0, 'Banana': 0, 'Mango': 0},
+            'Banana': {'Apple': 0, 'Banana': 0, 'Mango': 0},
+            'Mango':  {'Apple': 0, 'Banana': 0, 'Mango': 0}
+        };
+
+        for (let i = 0; i < valIds.length; i++) {
+            const files = document.getElementById(valIds[i]).files;
+            const actualLabel = labels[i];
+
+            for (let file of files) {
+                const img = await fileToImage(file);
+                const res = await classifier.predictClass(net.infer(img, true));
+                
+                const predictedLabel = res.label;
+                matrix[actualLabel][predictedLabel]++;
+                
+                if (predictedLabel === actualLabel) correct++;
+                total++;
+            }
+        }
+
+        displayReport(correct, total, matrix);
+    }
+
+    function displayReport(correct, total, matrix) {
+        document.getElementById('reportCard').style.display = "block";
+        const acc = ((correct / total) * 100).toFixed(2);
+        document.getElementById('accuracyLabel').innerText = `Final Accuracy: ${acc}%`;
+
+        let tableHtml = `<table><tr><th>Actual \\ Predicted</th><th>Apple</th><th>Banana</th><th>Mango</th></tr>`;
+        labels.forEach(actual => {
+            tableHtml += `<tr><td class="highlight">${actual}</td>`;
+            labels.forEach(pred => {
+                tableHtml += `<td>${matrix[actual][pred]}</td>`;
+            });
+            tableHtml += `</tr>`;
+        });
+        tableHtml += `</table>`;
+        
+        document.getElementById('matrixContainer').innerHTML = tableHtml;
+    }
+
+    function fileToImage(file) {
+        return new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => res(img);
+                img.src = e.target.result;
+                img.width = 224; img.height = 224;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    init();
+</script>
+</body>
+</html>
