@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Assignment 1: 3-Category Fruit Classifier</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 800px; margin: auto; background: #f9f9f9; }
+        .box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .status { color: #d35400; font-weight: bold; }
+        button { padding: 10px; cursor: pointer; background: #27ae60; color: white; border: none; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>Step 1: Training (3 Categories)</h2>
+    <p class="status" id="loadStatus">Loading Light-MobileNet (Please wait)...</p>
+    
+    <div>
+        <label>Category A (Apple): </label>
+        <input type="file" id="catA" multiple disabled>
+    </div><br>
+    <div>
+        <label>Category B (Banana): </label>
+        <input type="file" id="catB" multiple disabled>
+    </div><br>
+    <div>
+        <label>Category C (Mango): </label>
+        <input type="file" id="catC" multiple disabled>
+    </div>
+</div>
+
+<div class="box">
+    <h2>Step 2: Prediction</h2>
+    <input type="file" id="testInput" disabled>
+    <h3 id="result">Waiting for training...</h3>
+</div>
+
+<script>
+    let net, classifier;
+    const ids = ['catA', 'catB', 'catC'];
+    const labels = ['Apple', 'Banana', 'Mango'];
+
+    async function init() {
+        // Using alpha: 0.25 to make it download FAST in the lab
+        net = await mobilenet.load({version: 2, alpha: 0.50});
+        classifier = knnClassifier.create();
+        
+        document.getElementById('loadStatus').innerText = "Model Ready! 🚀";
+        ids.forEach(id => document.getElementById(id).disabled = false);
+        document.getElementById('testInput').disabled = false;
+    }
+
+    // Handle Training for each category
+    ids.forEach((id, index) => {
+        document.getElementById(id).addEventListener('change', async (e) => {
+            const files = e.target.files;
+            for (let file of files) {
+                const img = await fileToImage(file);
+                const activation = net.infer(img, true);
+                classifier.addExample(activation, labels[index]);
+            }
+            alert(`${labels[index]} trained with ${files.length} images!`);
+        });
+    });
+
+    // Handle Prediction
+    document.getElementById('testInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file || classifier.getNumClasses() === 0) return;
+
+        const img = await fileToImage(file);
+        const activation = net.infer(img, true);
+        const res = await classifier.predictClass(activation);
+        
+        document.getElementById('result').innerText = `Prediction: ${res.label}`;
+    });
+
+    function fileToImage(file) {
+        return new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => res(img);
+                img.src = e.target.result;
+                img.width = 224; img.height = 224;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    init();
+</script>
+</body>
+</html>
