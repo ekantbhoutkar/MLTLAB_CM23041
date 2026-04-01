@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>B.Tech ML Lab - Apple Trainer</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; background: #f0f2f5; padding: 40px; }
+        .container { background: white; max-width: 600px; margin: auto; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .section { margin: 20px 0; padding: 15px; border: 1px dashed #ccc; border-radius: 10px; }
+        .status { color: #555; font-weight: bold; }
+        #testPreview { width: 200px; margin-top: 15px; display: none; border-radius: 8px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        input[type="file"] { margin: 10px 0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Step 1: Train the Model 🧠</h2>
+    <p class="status" id="modelStatus">Loading MobileNet...</p>
+    
+    <div class="section">
+        <label>Upload Apple Images (Select multiple):</label><br>
+        <input type="file" id="trainUpload" accept="image/*" multiple disabled>
+        <p id="trainCount">0 samples added</p>
+    </div>
+
+    <hr>
+
+    <h2>Step 2: Predict 🍎</h2>
+    <div class="section">
+        <label>Upload image to test:</label><br>
+        <input type="file" id="testUpload" accept="image/*" disabled>
+        <br>
+        <img id="testPreview" src="" />
+        <h3 id="result">Waiting for training...</h3>
+    </div>
+</div>
+
+<script>
+    let net;
+    let classifier;
+    const trainInput = document.getElementById('trainUpload');
+    const testInput = document.getElementById('testUpload');
+    const trainCountLabel = document.getElementById('trainCount');
+    const resultLabel = document.getElementById('result');
+    const testPreview = document.getElementById('testPreview');
+
+    async function init() {
+        // Load the feature extractor (MobileNet) and the KNN Classifier
+        net = await mobilenet.load();
+        classifier = knnClassifier.create();
+        
+        document.getElementById('modelStatus').innerText = "Model Ready ✅";
+        trainInput.disabled = false;
+    }
+
+    // --- STEP 1: TRAINING ---
+    trainInput.addEventListener('change', async (e) => {
+        const files = e.target.files;
+        if (files.length === 0) return;
+
+        document.getElementById('modelStatus').innerText = "Processing Training Images...";
+        
+        for (let i = 0; i < files.length; i++) {
+            const img = await fileToImage(files[i]);
+            
+            // Extract features (activations) using MobileNet
+            const activation = net.infer(img, true);
+            
+            // Add to KNN Classifier under the label "Apple"
+            classifier.addExample(activation, "Apple");
+            
+            trainCountLabel.innerText = `${i + 1} samples added`;
+        }
+
+        document.getElementById('modelStatus').innerText = "Training Complete! Ready to Predict ✅";
+        testInput.disabled = false;
+        resultLabel.innerText = "Upload an image to test";
+    });
+
+    // --- STEP 2: PREDICTION ---
+    testInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const img = await fileToImage(file);
+        testPreview.src = img.src;
+        testPreview.style.display = "inline-block";
+
+        // Extract features of the test image
+        const activation = net.infer(img, true);
+        
+        // Use KNN to find the nearest match
+        const result = await classifier.predictClass(activation);
+
+        if (result.label === "Apple") {
+            resultLabel.innerHTML = "<span style='color:green'>Result: Apple Detected 🍎</span>";
+        } else {
+            resultLabel.innerHTML = "<span style='color:red'>Result: Not an Apple ❌</span>";
+        }
+    });
+
+    // Helper function to turn a File object into an HTML Image element
+    function fileToImage(file) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.src = event.target.result;
+                img.width = 224; // Standard MobileNet input size
+                img.height = 224;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    init();
+</script>
+
+</body>
+</html>
