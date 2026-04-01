@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Assignment 3: Incremental Training Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.16.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/knn-classifier"></script>
+    
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 900px; margin: auto; background: #fafafa; }
+        .box { background: white; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 15px; }
+        .btn-eval { background: #e67e22; color: white; padding: 10px; border: none; cursor: pointer; width: 100%; font-weight: bold; }
+        .btn-eval:disabled { background: #ccc; cursor: not-allowed; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #eee; padding: 10px; text-align: left; }
+        th { background: #f8f9fa; }
+        .ready-text { color: green; font-weight: bold; }
+        .loading-text { color: orange; }
+    </style>
+</head>
+<body>
+
+<div class="box">
+    <h2>1. Incremental Training (Add Categories)</h2>
+    <p id="modelStatus" class="loading-text">Status: Loading Models... ⏳</p>
+    <input type="file" id="trainA" multiple disabled> Apple | 
+    <input type="file" id="trainB" multiple disabled> Banana | 
+    <input type="file" id="trainC" multiple disabled> Mango |
+    <input type="file" id="trainD" multiple disabled> <b>Orange (New)</b>
+</div>
+
+<div class="box">
+    <h2>2. Validation (Test Set)</h2>
+    <input type="file" id="valA" multiple disabled> Test A | 
+    <input type="file" id="valB" multiple disabled> Test B | 
+    <input type="file" id="valC" multiple disabled> Test C |
+    <input type="file" id="valD" multiple disabled> <b>Test D</b>
+    <br><br>
+    <button id="evalBtn" class="btn-eval" onclick="runAnalysis()" disabled>Analyze Performance Changes</button>
+</div>
+
+<div class="box">
+    <h2>3. Performance Log</h2>
+    <table id="logTable">
+        <thead>
+            <tr>
+                <th>Test Run</th>
+                <th>Num. Categories</th>
+                <th>Accuracy (%)</th>
+                <th>Observations</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script>
+    let net, classifier;
+    let runCount = 0;
+    const labels = ['Apple', 'Banana', 'Mango', 'Orange'];
+    
+    async function init() {
+        try {
+            // Load the model with alpha 0.25 for speed
+            net = await mobilenet.load({version: 2, alpha: 0.50});
+            classifier = knnClassifier.create();
+            
+            // Enable all inputs and button once ready
+            document.getElementById('modelStatus').innerText = "Status: Model Ready ✅";
+            document.getElementById('modelStatus').className = "ready-text";
+            
+            ['trainA', 'trainB', 'trainC', 'trainD', 'valA', 'valB', 'valC', 'valD'].forEach(id => {
+                document.getElementById(id).disabled = false;
+            });
+            document.getElementById('evalBtn').disabled = false;
+        } catch (error) {
+            console.error(error);
+            document.getElementById('modelStatus').innerText = "Status: Error loading scripts. Check connection.";
+            document.getElementById('modelStatus').style.color = "red";
+        }
+    }
+
+    const trainIds = ['trainA', 'trainB', 'trainC', 'trainD'];
+    trainIds.forEach((id, i) => {
+        document.getElementById(id).onchange = async (e) => {
+            if (!classifier) return;
+            for (let file of e.target.files) {
+                const img = await fileToImage(file);
+                const activation = net.infer(img, true);
+                classifier.addExample(activation, labels[i]);
+            }
+            alert(labels[i] + " added to model!");
+        };
+    });
+
+    async function runAnalysis() {
+        if (!classifier || classifier.getNumClasses() === 0) {
+            alert("Please train at least one category first!");
+            return;
+        }
+
+        runCount++;
+        const valIds = ['valA', 'valB', 'valC', 'valD'];
+        let correct = 0, total = 0;
+        let activeClasses = classifier.getNumClasses();
+
+        for (let i = 0; i < valIds.length; i++) {
+            const fileInput = document.getElementById(valIds[i]);
+            if (!fileInput.files.length) continue;
+
+            for (let file of fileInput.files) {
+                const img = await fileToImage(file);
+                const activation = net.infer(img, true);
+                const res = await classifier.predictClass(activation);
+                
+                if (res.label === labels[i]) correct++;
+                total++;
+            }
+        }
+
+        if (total === 0) {
+            alert("Please upload images into the 'Validation' inputs to test!");
+            return;
+        }
+
+        const acc = ((correct / total) * 100).toFixed(2);
+        updateLog(activeClasses, acc);
+    }
+
+    function updateLog(classes, acc) {
+        const tableBody = document.querySelector('#logTable tbody');
+        const row = tableBody.insertRow(-1);
+        let obs = acc < 75 ? "Class overlap / Overfitting" : "High confidence";
+        if (classes > 3 && acc < 70) obs = "Performance drop due to class similarity";
+        
+        row.innerHTML = `<td>Run #${runCount}</td><td>${classes}</td><td>${acc}%</td><td>${obs}</td>`;
+    }
+
+    function fileToImage(file) {
+        return new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => res(img);
+                img.src = e.target.result;
+                img.width = 224; img.height = 224;
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    init();
+</script>
+</body>
+</html>
